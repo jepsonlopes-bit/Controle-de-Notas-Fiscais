@@ -1,0 +1,6 @@
+{
+  "name": "Controle de Notas Fiscais e Medições",
+  "description": "Sistema full-stack para gestão administrativa de notas fiscais, ordens de compra, medições e pagamentos com suporte a múltiplas obras e controle de auditoria.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
