@@ -106,30 +106,17 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
   return testHash === hash;
 }
 
-const defaultObras: Obra[] = [
-  {
-    id: 'obra-promorar-01',
-    codigo: 'OBR-001',
-    nome: 'PROMORAR',
-    descricao: 'Empreendimento Habitacional PROMORAR - Obra Matriz',
-    status: 'ativo',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'obra-reserva-02',
-    codigo: 'OBR-002',
-    nome: 'Residencial Reserva do Parque',
-    descricao: 'Empreendimento Residencial de Torres - 240 unidades',
-    status: 'ativo',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
+const defaultObras: Obra[] = [];
 
 function ensureDatabase(): DatabaseSchema {
   // 1. Se já carregado na memória do processo, usa o cache direto
   if (globalThis.__appDatabaseCache) {
+    if (!globalThis.__appDatabaseCache.obras) {
+      globalThis.__appDatabaseCache.obras = [];
+    }
+    if (!globalThis.__appDatabaseCache.lancamentos) {
+      globalThis.__appDatabaseCache.lancamentos = [];
+    }
     autoUpdateLancamentosStatus(globalThis.__appDatabaseCache);
     return globalThis.__appDatabaseCache;
   }
@@ -141,8 +128,11 @@ function ensureDatabase(): DatabaseSchema {
     try {
       const raw = fs.readFileSync(file, 'utf-8');
       const parsed = JSON.parse(raw) as DatabaseSchema;
-      if (!parsed.obras || parsed.obras.length === 0) {
-        parsed.obras = defaultObras;
+      if (!parsed.obras) {
+        parsed.obras = [];
+      }
+      if (!parsed.lancamentos) {
+        parsed.lancamentos = [];
       }
       autoUpdateLancamentosStatus(parsed);
       globalThis.__appDatabaseCache = parsed;
@@ -157,8 +147,11 @@ function ensureDatabase(): DatabaseSchema {
     try {
       const seedRaw = fs.readFileSync(SEED_FILE, 'utf-8');
       const seedParsed = JSON.parse(seedRaw) as DatabaseSchema;
-      if (!seedParsed.obras || seedParsed.obras.length === 0) {
-        seedParsed.obras = defaultObras;
+      if (!seedParsed.obras) {
+        seedParsed.obras = [];
+      }
+      if (!seedParsed.lancamentos) {
+        seedParsed.lancamentos = [];
       }
       autoUpdateLancamentosStatus(seedParsed);
       globalThis.__appDatabaseCache = seedParsed;
@@ -176,7 +169,7 @@ function ensureDatabase(): DatabaseSchema {
   // 4. Fallback inicial caso não haja nenhum arquivo
   const initialData: DatabaseSchema = {
     users: [],
-    obras: defaultObras,
+    obras: [],
     lancamentos: [],
     audit_logs: [],
     import_batches: [],
@@ -1075,6 +1068,36 @@ export function clearAllLancamentos(user: UserProfile): { totalRemovidos: number
 
   saveDatabase(db);
   return { totalRemovidos };
+}
+
+export function clearAllData(user: UserProfile): { totalObrasRemovidas: number; totalLancamentosRemovidos: number } {
+  if (user.role !== 'ADMINISTRADOR') {
+    throw new Error('Acesso negado: apenas administradores podem zerar todos os dados do sistema.');
+  }
+
+  const db = ensureDatabase();
+  const totalObrasRemovidas = db.obras.length;
+  const totalLancamentosRemovidos = db.lancamentos.length;
+
+  db.obras = [];
+  db.lancamentos = [];
+  db.import_batches = [];
+
+  db.audit_logs.unshift({
+    id: `aud-${crypto.randomUUID()}`,
+    usuario_id: user.id,
+    usuario_nome: user.nome,
+    usuario_email: user.email,
+    acao: 'EXCLUSAO',
+    entidade: 'sistema',
+    valores_anteriores: { obras: totalObrasRemovidas, lancamentos: totalLancamentosRemovidos },
+    valores_novos: { obras: 0, lancamentos: 0 },
+    descricao_resumo: `Administrador ${user.nome} zerou todos os dados do sistema (incluindo obras e lançamentos).`,
+    created_at: new Date().toISOString(),
+  });
+
+  saveDatabase(db);
+  return { totalObrasRemovidas, totalLancamentosRemovidos };
 }
 
 // -------------------------------------------------------------
