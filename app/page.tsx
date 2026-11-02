@@ -71,6 +71,32 @@ export default function Home() {
   const [selectedLancamento, setSelectedLancamento] = useState<Lancamento | null>(null);
   const [isReadOnlyLancamento, setIsReadOnlyLancamento] = useState(false);
 
+  // Collapsible Sidebar State
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_collapsed');
+      if (saved === 'true') {
+        setIsSidebarCollapsed(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleToggleCollapse = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('sidebar_collapsed', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   // Check auth and setup state
   const checkInitialState = useCallback(async () => {
     try {
@@ -310,10 +336,16 @@ export default function Home() {
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
         onOpenSupabaseGuide={() => setIsSupabaseGuideOpen(true)}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleCollapse}
       />
 
       {/* Main Workspace */}
-      <div className="flex min-h-screen flex-col lg:pl-72">
+      <div
+        className={`flex min-h-screen flex-col transition-all duration-300 ease-in-out ${
+          isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'
+        }`}
+      >
         {/* Top Header */}
         <Header
           onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
@@ -330,10 +362,16 @@ export default function Home() {
           }}
           currentUser={currentUser}
           pageTitle={pageTitles[currentTab] || 'Painel'}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleCollapseSidebar={handleToggleCollapse}
         />
 
         {/* Content Viewport */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main
+          className={`flex-1 p-4 sm:p-6 lg:p-8 w-full mx-auto transition-all duration-300 ${
+            isSidebarCollapsed ? 'max-w-[1700px]' : 'max-w-7xl'
+          }`}
+        >
           {currentTab === 'dashboard' && (
             <DashboardView
               metrics={metrics}

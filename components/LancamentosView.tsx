@@ -481,19 +481,20 @@ export function LancamentosView({
                 </th>
                 <th className="py-3.5 px-3">Pagamento</th>
                 <th className="py-3.5 px-3">Situação</th>
+                <th className="py-3.5 px-3 min-w-[140px]">Observação</th>
                 <th className="py-3.5 pr-4 pl-3 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={12} className="py-12 text-center text-slate-400">
                     Carregando lançamentos...
                   </td>
                 </tr>
               ) : lancamentos.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center">
+                  <td colSpan={12} className="py-12 text-center">
                     <p className="text-sm font-medium text-slate-700">
                       Nenhum lançamento encontrado
                     </p>
@@ -573,6 +574,20 @@ export function LancamentosView({
                       >
                         {item.status_pagamento}
                       </span>
+                    </td>
+
+                    {/* Observação */}
+                    <td className="py-3 px-3 max-w-[220px]">
+                      {item.observacao ? (
+                        <div
+                          className="truncate text-[11px] text-slate-600 font-normal"
+                          title={item.observacao}
+                        >
+                          {item.observacao}
+                        </div>
+                      ) : (
+                        <span className="text-slate-300 text-[11px]">-</span>
+                      )}
                     </td>
 
                     {/* Ações */}
