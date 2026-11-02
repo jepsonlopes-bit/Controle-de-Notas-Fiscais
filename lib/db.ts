@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import crypto from 'crypto';
 import {
   UserProfile,
@@ -41,8 +42,56 @@ interface DatabaseSchema {
   version: number;
 }
 
-const DB_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DB_DIR, 'app_database.json');
+// Global cache para garantir persistência e performance em instâncias ativas
+declare global {
+  var __appDatabaseCache: DatabaseSchema | undefined;
+}
+
+const SEED_FILE = path.join(process.cwd(), 'data', 'app_database.json');
+
+/**
+ * Determina o caminho de gravação do banco de dados.
+ * Em ambientes como Vercel ou AWS Lambda, o diretório da aplicação (/var/task) é estritamente somente leitura (EROFS).
+ * O único diretório com permissão de gravação em disco nesses ambientes é os.tmpdir() (/tmp).
+ */
+function resolveWritableDbPaths(): { dir: string; file: string } {
+  const isServerless = Boolean(
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.NOW_REGION
+  );
+
+  if (isServerless) {
+    const tmpDir = path.join(os.tmpdir(), 'controle_nf_data');
+    return {
+      dir: tmpDir,
+      file: path.join(tmpDir, 'app_database.json'),
+    };
+  }
+
+  // Tenta usar o diretório local data/ se tiver permissão de escrita
+  const localDir = path.join(process.cwd(), 'data');
+  try {
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+    const testFile = path.join(localDir, `.write_check_${Date.now()}`);
+    fs.writeFileSync(testFile, 'ok', 'utf-8');
+    fs.unlinkSync(testFile);
+    return {
+      dir: localDir,
+      file: path.join(localDir, 'app_database.json'),
+    };
+  } catch {
+    // Se ocorrer EROFS ou qualquer bloqueio no disco local, faz fallback automático para /tmp
+    const tmpDir = path.join(os.tmpdir(), 'controle_nf_data');
+    return {
+      dir: tmpDir,
+      file: path.join(tmpDir, 'app_database.json'),
+    };
+  }
+}
 
 // Senhas seguras com pbkdf2 do node:crypto
 export function hashPassword(password: string): { hash: string; salt: string } {
@@ -56,81 +105,117 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
   return testHash === hash;
 }
 
+const defaultObras: Obra[] = [
+  {
+    id: 'obra-promorar-01',
+    codigo: 'OBR-001',
+    nome: 'PROMORAR',
+    descricao: 'Empreendimento Habitacional PROMORAR - Obra Matriz',
+    status: 'ativo',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 'obra-reserva-02',
+    codigo: 'OBR-002',
+    nome: 'Residencial Reserva do Parque',
+    descricao: 'Empreendimento Residencial de Torres - 240 unidades',
+    status: 'ativo',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+];
+
 function ensureDatabase(): DatabaseSchema {
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
+  // 1. Se já carregado na memória do processo, usa o cache direto
+  if (globalThis.__appDatabaseCache) {
+    return globalThis.__appDatabaseCache;
   }
 
-  const defaultObras: Obra[] = [
-    {
-      id: 'obra-promorar-01',
-      codigo: 'OBR-001',
-      nome: 'PROMORAR',
-      descricao: 'Empreendimento Habitacional PROMORAR - Obra Matriz',
-      status: 'ativo',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: 'obra-reserva-02',
-      codigo: 'OBR-002',
-      nome: 'Residencial Reserva do Parque',
-      descricao: 'Empreendimento Residencial de Torres - 240 unidades',
-      status: 'ativo',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ];
+  const { file } = resolveWritableDbPaths();
 
-  if (!fs.existsSync(DB_FILE)) {
-    const initialData: DatabaseSchema = {
-      users: [],
-      obras: defaultObras,
-      lancamentos: [],
-      audit_logs: [],
-      import_batches: [],
-      version: 1,
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
-    return initialData;
+  // 2. Se o arquivo já existe no destino gravável (ex: /tmp/controle_nf_data/app_database.json)
+  if (fs.existsSync(file)) {
+    try {
+      const raw = fs.readFileSync(file, 'utf-8');
+      const parsed = JSON.parse(raw) as DatabaseSchema;
+      if (!parsed.obras || parsed.obras.length === 0) {
+        parsed.obras = defaultObras;
+      }
+      globalThis.__appDatabaseCache = parsed;
+      return parsed;
+    } catch (err) {
+      console.warn('Erro ao ler DB do caminho gravável:', err);
+    }
   }
 
+  // 3. Se não existe no destino gravável, carrega a base distribuída (data/app_database.json)
+  if (fs.existsSync(SEED_FILE)) {
+    try {
+      const seedRaw = fs.readFileSync(SEED_FILE, 'utf-8');
+      const seedParsed = JSON.parse(seedRaw) as DatabaseSchema;
+      if (!seedParsed.obras || seedParsed.obras.length === 0) {
+        seedParsed.obras = defaultObras;
+      }
+      globalThis.__appDatabaseCache = seedParsed;
+      try {
+        saveDatabase(seedParsed);
+      } catch (saveErr) {
+        console.warn('Aviso: Não foi possível salvar seed imediatamente em disco:', saveErr);
+      }
+      return seedParsed;
+    } catch (seedErr) {
+      console.warn('Erro ao carregar seed base:', seedErr);
+    }
+  }
+
+  // 4. Fallback inicial caso não haja nenhum arquivo
+  const initialData: DatabaseSchema = {
+    users: [],
+    obras: defaultObras,
+    lancamentos: [],
+    audit_logs: [],
+    import_batches: [],
+    version: 1,
+  };
+  globalThis.__appDatabaseCache = initialData;
   try {
-    const raw = fs.readFileSync(DB_FILE, 'utf-8');
-    const parsed = JSON.parse(raw) as DatabaseSchema;
-    let modified = false;
-
-    if (!parsed.obras || parsed.obras.length === 0) {
-      parsed.obras = defaultObras;
-      modified = true;
-    }
-
-    if (modified) {
-      saveDatabase(parsed);
-    }
-    return parsed;
-  } catch (err) {
-    console.error('Erro ao ler base de dados, recriando inicial:', err);
-    const initialData: DatabaseSchema = {
-      users: [],
-      obras: defaultObras,
-      lancamentos: [],
-      audit_logs: [],
-      import_batches: [],
-      version: 1,
-    };
     saveDatabase(initialData);
-    return initialData;
+  } catch (saveErr) {
+    console.warn('Aviso: Não foi possível salvar dados iniciais em disco:', saveErr);
   }
+  return initialData;
 }
 
 function saveDatabase(data: DatabaseSchema): void {
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
+  // Atualiza cache em memória imediatamente
+  globalThis.__appDatabaseCache = data;
+
+  const { dir, file } = resolveWritableDbPaths();
+
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tempFile = `${file}.tmp.${Date.now()}`;
+    fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tempFile, file);
+  } catch (err) {
+    console.warn(`Aviso: Falha ao gravar em ${file}, tentando fallback direto em /tmp:`, err);
+    try {
+      const tmpDir = path.join(os.tmpdir(), 'controle_nf_data');
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+      const tmpFile = path.join(tmpDir, 'app_database.json');
+      const tempTmpFile = `${tmpFile}.tmp.${Date.now()}`;
+      fs.writeFileSync(tempTmpFile, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(tempTmpFile, tmpFile);
+    } catch (fallbackErr) {
+      console.warn('Aviso: Falha na gravação em disco. Dados mantidos com sucesso na memória do processo:', fallbackErr);
+      // Não propaga erro para o cliente HTTP para nunca quebrar com EROFS
+    }
   }
-  const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
-  fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-  fs.renameSync(tempFile, DB_FILE);
 }
 
 // -------------------------------------------------------------
