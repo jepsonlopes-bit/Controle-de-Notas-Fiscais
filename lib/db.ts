@@ -7,6 +7,7 @@ import {
   UserRole,
   Obra,
   Lancamento,
+  StatusPagamento,
   AuditLog,
   ImportBatch,
   LancamentoFilter,
@@ -129,6 +130,7 @@ const defaultObras: Obra[] = [
 function ensureDatabase(): DatabaseSchema {
   // 1. Se já carregado na memória do processo, usa o cache direto
   if (globalThis.__appDatabaseCache) {
+    autoUpdateLancamentosStatus(globalThis.__appDatabaseCache);
     return globalThis.__appDatabaseCache;
   }
 
@@ -142,6 +144,7 @@ function ensureDatabase(): DatabaseSchema {
       if (!parsed.obras || parsed.obras.length === 0) {
         parsed.obras = defaultObras;
       }
+      autoUpdateLancamentosStatus(parsed);
       globalThis.__appDatabaseCache = parsed;
       return parsed;
     } catch (err) {
@@ -157,6 +160,7 @@ function ensureDatabase(): DatabaseSchema {
       if (!seedParsed.obras || seedParsed.obras.length === 0) {
         seedParsed.obras = defaultObras;
       }
+      autoUpdateLancamentosStatus(seedParsed);
       globalThis.__appDatabaseCache = seedParsed;
       try {
         saveDatabase(seedParsed);
@@ -613,6 +617,70 @@ export function deleteObra(
 // -------------------------------------------------------------
 // GESTÃO DE LANÇAMENTOS (NOTAS FISCAIS E MEDIÇÕES)
 // -------------------------------------------------------------
+
+/**
+ * Converte qualquer representação de data (AAAA-MM-DD, DD/MM/AAAA ou ISO) para AAAA-MM-DD
+ */
+export function normalizeDateToISO(dateStr?: string): string | null {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    return trimmed.substring(0, 10);
+  }
+
+  const brMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (brMatch) {
+    const [, d, m, y] = brMatch;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  return null;
+}
+
+/**
+ * Retorna a data do dia de abertura do sistema no formato AAAA-MM-DD
+ */
+export function getTodayISODate(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Atualiza automaticamente a situação para 'Pago' caso a data de pagamento
+ * tenha passado ou alcançado a data de hoje (data de abertura do sistema).
+ */
+export function autoUpdateLancamentosStatus(db: DatabaseSchema): boolean {
+  const today = getTodayISODate();
+  let changed = false;
+
+  for (const item of db.lancamentos) {
+    if (!item.data_pagamento) continue;
+    const pagISO = normalizeDateToISO(item.data_pagamento);
+    if (pagISO && pagISO <= today) {
+      if (item.status_pagamento !== 'Pago' && item.status_pagamento !== 'Cancelado') {
+        item.status_pagamento = 'Pago';
+        item.updated_at = new Date().toISOString();
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
+}
+
 export function getLancamentos(filter: LancamentoFilter = {}): {
   data: Lancamento[];
   total: number;
@@ -623,6 +691,16 @@ export function getLancamentos(filter: LancamentoFilter = {}): {
   soma_valor_liquido: number;
 } {
   const db = ensureDatabase();
+
+  // Atualiza automaticamente situações de pagamentos vencidos/passados para 'Pago'
+  if (autoUpdateLancamentosStatus(db)) {
+    try {
+      saveDatabase(db);
+    } catch {
+      // continua com dados em memória
+    }
+  }
+
   const obraMap = new Map(db.obras.map((o) => [o.id, o.nome]));
 
   let items = db.lancamentos.map((item) => ({
@@ -775,6 +853,14 @@ export function createLancamento(
   }
 
   const now = new Date().toISOString();
+  let statusInicial: StatusPagamento = data.status_pagamento || 'Pendente';
+  if (data.data_pagamento) {
+    const pagISO = normalizeDateToISO(data.data_pagamento);
+    if (pagISO && pagISO <= getTodayISODate() && statusInicial !== 'Cancelado') {
+      statusInicial = 'Pago';
+    }
+  }
+
   const newLancamento: Lancamento = {
     id: `lan-${crypto.randomUUID()}`,
     obra_id: data.obra_id,
@@ -787,7 +873,7 @@ export function createLancamento(
     valor_liquido: Number(data.valor_liquido),
     data_lancamento: data.data_lancamento,
     data_pagamento: data.data_pagamento || '',
-    status_pagamento: data.status_pagamento || (data.data_pagamento ? 'Pendente' : 'Pendente'),
+    status_pagamento: statusInicial,
     data_confirmacao_pagamento: data.data_confirmacao_pagamento || '',
     categoria_despesa: data.categoria_despesa ? data.categoria_despesa.trim() : 'Geral',
     observacao: data.observacao ? data.observacao.trim() : '',
@@ -858,7 +944,17 @@ export function updateLancamento(
     valor_liquido: data.valor_liquido !== undefined ? Number(data.valor_liquido) : atual.valor_liquido,
     data_lancamento: data.data_lancamento || atual.data_lancamento,
     data_pagamento: data.data_pagamento !== undefined ? data.data_pagamento : atual.data_pagamento,
-    status_pagamento: data.status_pagamento || atual.status_pagamento,
+    status_pagamento: (() => {
+      const explicitStatus = data.status_pagamento || atual.status_pagamento;
+      const targetPag = data.data_pagamento !== undefined ? data.data_pagamento : atual.data_pagamento;
+      if (targetPag) {
+        const pagISO = normalizeDateToISO(targetPag);
+        if (pagISO && pagISO <= getTodayISODate() && explicitStatus !== 'Cancelado') {
+          return 'Pago';
+        }
+      }
+      return explicitStatus;
+    })(),
     data_confirmacao_pagamento: data.data_confirmacao_pagamento !== undefined ? data.data_confirmacao_pagamento : atual.data_confirmacao_pagamento,
     categoria_despesa: data.categoria_despesa !== undefined ? data.categoria_despesa.trim() : atual.categoria_despesa,
     observacao: data.observacao !== undefined ? data.observacao.trim() : atual.observacao,
@@ -995,6 +1091,16 @@ export function getAuditLogs(filter: {
 // -------------------------------------------------------------
 export function getDashboardMetrics(obra_id?: string): DashboardMetrics {
   const db = ensureDatabase();
+
+  // Garante que o dashboard reflita imediatamente lançamentos cuja data de pagamento passou
+  if (autoUpdateLancamentosStatus(db)) {
+    try {
+      saveDatabase(db);
+    } catch {
+      // continua com dados em memória
+    }
+  }
+
   let items = db.lancamentos;
 
   if (obra_id && obra_id !== 'todas') {
@@ -1156,7 +1262,15 @@ export function importSpreadsheetBatch(
       valor_liquido: Number(row.valor_liquido),
       data_lancamento: row.data_lancamento,
       data_pagamento: row.data_pagamento || '',
-      status_pagamento: row.data_pagamento ? 'Pendente' : 'Pendente',
+      status_pagamento: (() => {
+        if (row.data_pagamento) {
+          const pagISO = normalizeDateToISO(row.data_pagamento);
+          if (pagISO && pagISO <= getTodayISODate()) {
+            return 'Pago';
+          }
+        }
+        return 'Pendente';
+      })(),
       categoria_despesa: row.categoria_despesa ? row.categoria_despesa.trim() : 'Geral',
       observacao: row.observacao ? row.observacao.trim() : '',
       criado_por_id: admin.id,

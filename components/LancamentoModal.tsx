@@ -50,9 +50,18 @@ function LancamentoModalContent({
     lancamento?.data_lancamento || new Date().toISOString().split('T')[0]
   );
   const [dataPagamento, setDataPagamento] = useState(lancamento?.data_pagamento || '');
-  const [statusPagamento, setStatusPagamento] = useState<'Pendente' | 'Pago' | 'A Vencer' | 'Cancelado'>(
-    lancamento?.status_pagamento || 'Pendente'
-  );
+  const [statusPagamento, setStatusPagamento] = useState<'Pendente' | 'Pago' | 'A Vencer' | 'Cancelado'>(() => {
+    if (lancamento?.status_pagamento) {
+      if (lancamento.status_pagamento === 'Cancelado') return 'Cancelado';
+      if (lancamento.status_pagamento === 'Pago') return 'Pago';
+    }
+    const today = new Date().toISOString().split('T')[0];
+    const pag = lancamento?.data_pagamento?.trim();
+    if (pag && pag <= today) {
+      return 'Pago';
+    }
+    return lancamento?.status_pagamento || 'Pendente';
+  });
   const [dataConfirmacaoPagamento, setDataConfirmacaoPagamento] = useState(
     lancamento?.data_confirmacao_pagamento || ''
   );
@@ -355,7 +364,16 @@ function LancamentoModalContent({
                 type="date"
                 disabled={isReadOnly}
                 value={dataPagamento}
-                onChange={(e) => setDataPagamento(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDataPagamento(val);
+                  if (val) {
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    if (val <= todayStr && statusPagamento !== 'Cancelado') {
+                      setStatusPagamento('Pago');
+                    }
+                  }
+                }}
                 className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 sm:text-sm"
               />
             </div>

@@ -104,6 +104,33 @@ export function LancamentosView({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Determina a situação do pagamento considerando a data de abertura do sistema (hoje)
+  function getSituacaoEfetiva(l: Lancamento): string {
+    if (l.status_pagamento === 'Cancelado') return 'Cancelado';
+    if (l.status_pagamento === 'Pago') return 'Pago';
+    if (l.data_pagamento) {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      const today = `${y}-${m}-${d}`;
+
+      let pag = l.data_pagamento.trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(pag)) {
+        pag = pag.substring(0, 10);
+      } else {
+        const match = pag.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (match) {
+          pag = `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+        }
+      }
+      if (pag && pag <= today) {
+        return 'Pago';
+      }
+    }
+    return l.status_pagamento;
+  }
+
   // Exportar para Excel (.xlsx)
   function exportToExcel() {
     if (lancamentos.length === 0) return;
@@ -118,7 +145,7 @@ export function LancamentosView({
       'Valor líquido': l.valor_liquido,
       'Data de lançamento': formatarDataBR(l.data_lancamento),
       'Data de pagamento': formatarDataBR(l.data_pagamento),
-      'Situação do Pagamento': l.status_pagamento,
+      'Situação do Pagamento': getSituacaoEfetiva(l),
       'Confirmação Quitação': formatarDataBR(l.data_confirmacao_pagamento),
       'Categoria de despesa': l.categoria_despesa || '',
       'Observação': l.observacao || '',
@@ -163,7 +190,7 @@ export function LancamentosView({
       l.valor_liquido.toFixed(2),
       l.data_lancamento,
       l.data_pagamento || '',
-      `"${l.status_pagamento}"`,
+      `"${getSituacaoEfetiva(l)}"`,
       `"${(l.categoria_despesa || '').replace(/"/g, '""')}"`,
       `"${(l.observacao || '').replace(/"/g, '""')}"`,
     ]);
@@ -561,19 +588,24 @@ export function LancamentosView({
 
                     {/* Situação */}
                     <td className="py-3 px-3 whitespace-nowrap">
-                      <span
-                        className={`text-xs font-medium ${
-                          item.status_pagamento === 'Pago'
-                            ? 'text-emerald-700'
-                            : item.status_pagamento === 'Pendente'
-                            ? 'text-amber-700'
-                            : item.status_pagamento === 'A Vencer'
-                            ? 'text-blue-700'
-                            : 'text-slate-600'
-                        }`}
-                      >
-                        {item.status_pagamento}
-                      </span>
+                      {(() => {
+                        const situacao = getSituacaoEfetiva(item);
+                        return (
+                          <span
+                            className={`text-xs font-semibold ${
+                              situacao === 'Pago'
+                                ? 'text-emerald-700'
+                                : situacao === 'Pendente'
+                                ? 'text-amber-700'
+                                : situacao === 'A Vencer'
+                                ? 'text-blue-700'
+                                : 'text-slate-600'
+                            }`}
+                          >
+                            {situacao}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* Observação */}
