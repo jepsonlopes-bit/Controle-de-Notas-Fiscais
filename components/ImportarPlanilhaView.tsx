@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -13,6 +13,8 @@ import {
   Building2,
   Download,
   AlertCircle,
+  RefreshCw,
+  X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Obra, UserProfile, ImportBatch } from '@/lib/types';
@@ -31,10 +33,10 @@ export function ImportarPlanilhaView({
 }: ImportarPlanilhaViewProps) {
   const isAdmin = currentUser.role === 'ADMINISTRADOR';
 
-  // Find PROMORAR obra by default
-  const promorarObra = obras.find((o) => o.nome.toUpperCase().includes('PROMORAR')) || obras[0];
+  // Obra selecionada padrão
+  const defaultObra = obras.find((o) => o.status === 'ativo') || obras[0];
 
-  const [selectedObraId, setSelectedObraId] = useState<string>(promorarObra?.id || '');
+  const [selectedObraId, setSelectedObraId] = useState<string>(defaultObra?.id || '');
   const [fileName, setFileName] = useState('');
   const [rawRows, setRawRows] = useState<any[]>([]);
   const [validationResult, setValidationResult] = useState<any>(null);
@@ -43,15 +45,21 @@ export function ImportarPlanilhaView({
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Past batches
+  // Substituição de planilha existente
+  const [substitutingBatch, setSubstitutingBatch] = useState<ImportBatch | null>(null);
+
+  // Histórico de planilhas/lotes
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [loadingBatches, setLoadingBatches] = useState(false);
-  const [revertingBatchId, setRevertingBatchId] = useState<string | null>(null);
+  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
+  const [batchToDelete, setBatchToDelete] = useState<ImportBatch | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchBatches = useCallback(async () => {
     setLoadingBatches(true);
     try {
-      const res = await fetch('/api/importar');
+      const res = await fetch('/api/importar', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setBatches(data.batches || []);
@@ -67,7 +75,7 @@ export function ImportarPlanilhaView({
     fetchBatches();
   }, [fetchBatches]);
 
-  // Baixar modelo de planilha Excel
+  // Baixar modelo padrão de planilha Excel
   function downloadTemplate() {
     const templateData = [
       {
@@ -80,7 +88,19 @@ export function ImportarPlanilhaView({
         'Data de lançamento': '2026-10-15',
         'Data de pagamento': '2026-11-10',
         'Categoria de despesa': 'Fundações e Estrutura',
-        'Observação': 'Medição de formas e concretagem bloco A',
+        'Observação': 'Parcela 1 de 2',
+      },
+      {
+        'Fornecedor': 'Exemplo Construtora ABC Ltda',
+        'Nº de OC': '004521',
+        'Nº Medição': '', // Sem medição
+        'Nº NF': '000789', // Mesma NF (parcela 2, data de pagamento diferente)
+        'Valor bruto': 15850.0,
+        'Valor líquido': 14265.0,
+        'Data de lançamento': '2026-10-15',
+        'Data de pagamento': '2026-12-10',
+        'Categoria de despesa': 'Fundações e Estrutura',
+        'Observação': 'Parcela 2 de 2',
       },
       {
         'Fornecedor': 'Distribuidora de Tubos e Conexões',
@@ -99,10 +119,10 @@ export function ImportarPlanilhaView({
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Modelo Importação');
-    XLSX.writeFile(wb, 'Modelo_Controle_NFs_Medicoes.xlsx');
+    XLSX.writeFile(wb, 'Modelo_Controle_Lancamentos.xlsx');
   }
 
-  // Processar arquivo selecionado pelo usuário
+  // Leitura e envio de arquivo
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -127,7 +147,6 @@ export function ImportarPlanilhaView({
         }
 
         setRawRows(data);
-        // Validar no backend
         await runValidation(data, selectedObraId);
       } catch (err: any) {
         setErrorMessage(`Falha ao ler o arquivo: ${err.message}`);
@@ -166,7 +185,7 @@ export function ImportarPlanilhaView({
     }
   }
 
-  // Confirmar importação definitiva (apenas Administrador)
+  // Confirmar importação definitiva (Apenas Administrador)
   async function handleConfirmImport() {
     if (!isAdmin) {
       setErrorMessage('Apenas o Administrador possui permissão para autorizar a importação.');
@@ -190,6 +209,7 @@ export function ImportarPlanilhaView({
           obra_id: selectedObraId,
           arquivo_nome: fileName || 'planilha_importada.xlsx',
           linhas_validadas: validationResult.linhas,
+          batch_id_substituir: substitutingBatch?.id || null,
         }),
       });
 
@@ -202,6 +222,10 @@ export function ImportarPlanilhaView({
       setValidationResult(null);
       setRawRows([]);
       setFileName('');
+      setSubstitutingBatch(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       fetchBatches();
       onSuccessImport();
     } catch (err: any) {
@@ -211,30 +235,56 @@ export function ImportarPlanilhaView({
     }
   }
 
-  // Reverter / Excluir lote de importação caso o administrador se arrependa
-  async function handleRollbackBatch(batchId: string) {
-    if (!isAdmin) return;
-    setRevertingBatchId(batchId);
+  // Excluir permanentemente lote de planilha
+  async function handleConfirmDeleteBatch() {
+    if (!isAdmin || !batchToDelete) return;
+    setDeletingBatchId(batchToDelete.id);
     setErrorMessage('');
     setSuccessMessage('');
 
     try {
-      const res = await fetch(`/api/importar?batch_id=${batchId}`, {
+      const res = await fetch(`/api/importar?batch_id=${batchToDelete.id}`, {
         method: 'DELETE',
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Erro ao reverter lote de importação.');
+        throw new Error(data.error || 'Erro ao excluir a planilha.');
       }
 
       setSuccessMessage(data.message);
+      setBatchToDelete(null);
       fetchBatches();
       onSuccessImport();
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao reverter lote.');
+      setErrorMessage(err.message || 'Erro ao excluir planilha.');
     } finally {
-      setRevertingBatchId(null);
+      setDeletingBatchId(null);
+    }
+  }
+
+  // Iniciar fluxo de substituição
+  function handleStartSubstitute(batch: ImportBatch) {
+    setSubstitutingBatch(batch);
+    setSelectedObraId(batch.obra_id);
+    setValidationResult(null);
+    setRawRows([]);
+    setFileName('');
+    setErrorMessage('');
+    setSuccessMessage('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  }
+
+  function handleCancelSubstitute() {
+    setSubstitutingBatch(null);
+    setValidationResult(null);
+    setRawRows([]);
+    setFileName('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   }
 
@@ -248,9 +298,9 @@ export function ImportarPlanilhaView({
               Importação da Planilha Matriz
             </h2>
             <p className="mt-1 text-xs text-slate-500 leading-relaxed max-w-2xl">
-              Importe seus dados legados de Excel (.xlsx, .xls) ou CSV com mapeamento automático
-              das dez colunas originais. O sistema realiza conferência prévia de integridade, cálculo
-              de totais e detecção de duplicidades antes da gravação definitiva.
+              Importe suas planilhas de Excel (.xlsx, .xls) ou CSV sem restrições de duplicidade.
+              O sistema preserva integralmente todas as parcelas de uma mesma NF (diferenciadas
+              pela data de pagamento) e mantém os campos sem medição devidamente vazios.
             </p>
           </div>
 
@@ -262,6 +312,28 @@ export function ImportarPlanilhaView({
             <span>Baixar Modelo Padrão (.xlsx)</span>
           </button>
         </div>
+
+        {/* Substituting Notice Banner */}
+        {substitutingBatch && (
+          <div className="mt-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 shrink-0 text-amber-600 animate-spin" />
+              <span>
+                <strong>Modo de Substituição Ativo:</strong> você está substituindo a planilha{' '}
+                <code className="font-mono font-bold">{substitutingBatch.arquivo_nome}</code> (Obra:{' '}
+                {substitutingBatch.obra_nome}). Ao confirmar a nova planilha, os dados anteriores
+                serão substituídos.
+              </span>
+            </div>
+            <button
+              onClick={handleCancelSubstitute}
+              className="flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+            >
+              <X className="h-3.5 w-3.5" />
+              <span>Cancelar Substituição</span>
+            </button>
+          </div>
+        )}
 
         {/* Feedback Messages */}
         {errorMessage && (
@@ -298,13 +370,13 @@ export function ImportarPlanilhaView({
               >
                 {obras.map((o) => (
                   <option key={o.id} value={o.id}>
-                    {o.codigo} - {o.nome} {o.nome.toUpperCase().includes('PROMORAR') ? '(Padrão Inicial)' : ''}
+                    {o.codigo} - {o.nome} {o.status === 'inativo' ? '(Inativa)' : ''}
                   </option>
                 ))}
               </select>
             </div>
             <p className="text-[11px] text-slate-400">
-              Selecione a obra de destino à qual os lançamentos da planilha serão vinculados.
+              Selecione a obra à qual os lançamentos e parcelas da planilha serão vinculados.
             </p>
           </div>
 
@@ -323,11 +395,12 @@ export function ImportarPlanilhaView({
                 )}
               </p>
               <p className="mt-1 text-[11px] text-slate-400">
-                Mapeamento das 10 colunas: Fornecedor, Nº OC, Nº Medição, Nº NF, Valor bruto, Valor líquido, etc.
+                Mapeamento das 10 colunas: Fornecedor, Nº OC, Nº Medição, Nº NF, Valor bruto, Valor líquido, Data lançamento, Data pagamento, Categoria, Observação.
               </p>
               <label className="mt-4 cursor-pointer rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-slate-800">
-                Escolher Arquivo
+                {substitutingBatch ? 'Selecionar Nova Planilha para Substituir' : 'Escolher Arquivo'}
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept=".xlsx, .xls, .csv"
                   onChange={handleFileUpload}
@@ -342,9 +415,9 @@ export function ImportarPlanilhaView({
       {/* Validation and Preview Section */}
       {isValidating && (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
-          <p className="text-xs font-semibold text-slate-700">Validando dados da planilha...</p>
+          <p className="text-xs font-semibold text-slate-700">Carregando e validando planilha...</p>
           <p className="text-[11px] text-slate-400 mt-1">
-            Conferindo valores, formatação de datas e detecção de duplicidades.
+            Organizando parcelas, conferindo valores e preservando campos sem medição.
           </p>
         </div>
       )}
@@ -354,10 +427,12 @@ export function ImportarPlanilhaView({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">
-                Relatório de Pré-Visualização e Conferência
+                Pré-Visualização dos Registros da Planilha
               </h3>
               <p className="text-xs text-slate-500">
-                Confira os totais antes de autorizar a gravação definitiva no banco de dados
+                {substitutingBatch
+                  ? `Substituindo dados da planilha anterior por ${validationResult.total_validas} novos registros`
+                  : `Todos os ${validationResult.total_validas} registros estão prontos para importação direta`}
               </p>
             </div>
 
@@ -371,6 +446,11 @@ export function ImportarPlanilhaView({
                 >
                   {isConfirming ? (
                     'Gravando no banco...'
+                  ) : substitutingBatch ? (
+                    <>
+                      <span>Confirmar Substituição ({validationResult.total_validas} Registros)</span>
+                      <RefreshCw className="h-4 w-4" />
+                    </>
                   ) : (
                     <>
                       <span>Confirmar e Importar {validationResult.total_validas} Registros</span>
@@ -387,39 +467,29 @@ export function ImportarPlanilhaView({
           </div>
 
           {/* Pre-Import Metrics Cards */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 pt-2">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 pt-2">
             <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <span className="text-[11px] text-slate-500">Registros Válidos</span>
+              <span className="text-[11px] text-slate-500">Total de Registros / Parcelas</span>
               <p className="text-lg font-bold text-slate-900 font-mono tabular-nums">
-                {validationResult.total_validas} / {validationResult.total_lidas}
+                {validationResult.total_validas} linhas
               </p>
             </div>
             <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <span className="text-[11px] text-slate-500">Total Valor Bruto</span>
+              <span className="text-[11px] text-slate-500">Soma Total Valor Bruto</span>
               <p className="text-lg font-bold text-slate-900 font-mono tabular-nums">
                 {formatarMoeda(validationResult.soma_bruto_validas)}
               </p>
             </div>
             <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <span className="text-[11px] text-slate-500">Total Valor Líquido</span>
+              <span className="text-[11px] text-slate-500">Soma Total Valor Líquido</span>
               <p className="text-lg font-bold text-emerald-700 font-mono tabular-nums">
                 {formatarMoeda(validationResult.soma_liquido_validas)}
-              </p>
-            </div>
-            <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <span className="text-[11px] text-slate-500">Alertas / Erros</span>
-              <p
-                className={`text-lg font-bold font-mono tabular-nums ${
-                  validationResult.total_com_erros > 0 ? 'text-rose-600' : 'text-slate-700'
-                }`}
-              >
-                {validationResult.total_com_erros} erros · {validationResult.total_duplicadas_detectadas} duplicatas
               </p>
             </div>
           </div>
 
           {/* Preview Table */}
-          <div className="mt-4 max-h-80 overflow-y-auto rounded-lg border border-slate-200">
+          <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-slate-200">
             <table className="w-full text-left text-xs border-collapse">
               <thead className="sticky top-0 bg-slate-100 border-b border-slate-200 font-semibold text-slate-700">
                 <tr>
@@ -427,55 +497,42 @@ export function ImportarPlanilhaView({
                   <th className="py-2.5 px-2">Status</th>
                   <th className="py-2.5 px-2">Fornecedor</th>
                   <th className="py-2.5 px-2">Nº OC</th>
+                  <th className="py-2.5 px-2">Nº Medição</th>
                   <th className="py-2.5 px-2">Nº NF</th>
                   <th className="py-2.5 px-2 text-right">Valor Bruto</th>
                   <th className="py-2.5 px-2 text-right">Valor Líquido</th>
                   <th className="py-2.5 px-2">Lançamento</th>
-                  <th className="py-2.5 pr-3 pl-2">Observações/Erros</th>
+                  <th className="py-2.5 px-2">Pagamento</th>
+                  <th className="py-2.5 pr-3 pl-2">Observações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-800">
-                {validationResult.linhas.slice(0, 50).map((r: any) => (
-                  <tr
-                    key={r.linha}
-                    className={
-                      !r.valida
-                        ? 'bg-rose-50/50'
-                        : r.is_duplicada
-                        ? 'bg-amber-50/50'
-                        : 'hover:bg-slate-50'
-                    }
-                  >
+                {validationResult.linhas.map((r: any) => (
+                  <tr key={r.linha} className="hover:bg-slate-50">
                     <td className="py-2 pl-3 pr-2 font-mono text-slate-500">{r.linha}</td>
                     <td className="py-2 px-2 whitespace-nowrap">
-                      {r.valida ? (
-                        r.is_duplicada ? (
-                          <span className="text-amber-700 font-medium">Alerta Duplicata</span>
-                        ) : (
-                          <span className="text-emerald-700 font-medium">Válido</span>
-                        )
-                      ) : (
-                        <span className="text-rose-600 font-medium">Invalido</span>
-                      )}
+                      <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200">
+                        Válido
+                      </span>
                     </td>
-                    <td className="py-2 px-2 font-medium text-slate-900 max-w-[150px] truncate">
+                    <td className="py-2 px-2 font-medium text-slate-900 max-w-[160px] truncate" title={r.fornecedor}>
                       {r.fornecedor || '-'}
                     </td>
                     <td className="py-2 px-2 font-mono">{r.numero_oc || '-'}</td>
-                    <td className="py-2 px-2 font-mono">{r.numero_nf || '-'}</td>
+                    <td className="py-2 px-2 font-mono text-slate-500">
+                      {r.numero_medicao ? r.numero_medicao : <span className="text-slate-300">-</span>}
+                    </td>
+                    <td className="py-2 px-2 font-mono font-medium">{r.numero_nf || '-'}</td>
                     <td className="py-2 px-2 text-right font-mono tabular-nums">
                       {formatarMoeda(r.valor_bruto)}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono tabular-nums text-emerald-700">
+                    <td className="py-2 px-2 text-right font-mono tabular-nums text-emerald-700 font-medium">
                       {formatarMoeda(r.valor_liquido)}
                     </td>
                     <td className="py-2 px-2 font-mono">{formatarDataBR(r.data_lancamento)}</td>
-                    <td className="py-2 pr-3 pl-2 text-slate-500">
-                      {r.erros.length > 0 ? (
-                        <span className="text-rose-600">{r.erros.join(', ')}</span>
-                      ) : (
-                        r.observacao || '-'
-                      )}
+                    <td className="py-2 px-2 font-mono">{formatarDataBR(r.data_pagamento)}</td>
+                    <td className="py-2 pr-3 pl-2 text-slate-500 max-w-[150px] truncate" title={r.observacao}>
+                      {r.observacao || '-'}
                     </td>
                   </tr>
                 ))}
@@ -485,23 +542,26 @@ export function ImportarPlanilhaView({
         </div>
       )}
 
-      {/* History of Import Batches with Reversion (Excluir lote se arrepender-se) */}
+      {/* Planilhas Importadas & Gerenciamento (Substituir ou Excluir) */}
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs">
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-slate-900">
-            Histórico de Lotes Importados & Reversão
+            Planilhas Importadas no Sistema
           </h3>
           <p className="text-xs text-slate-500">
-            Caso o administrador identifique inconsistências após a importação, é possível reverter
-            e excluir o lote completo, preservando a integridade dos demais dados.
+            Gerencie as planilhas carregadas. Você pode substituir uma planilha por uma versão mais recente ou excluí-la completamente a qualquer momento.
           </p>
         </div>
 
         {loadingBatches ? (
-          <div className="py-6 text-center text-xs text-slate-400">Carregando lotes...</div>
+          <div className="py-6 text-center text-xs text-slate-400">Carregando planilhas...</div>
         ) : batches.length === 0 ? (
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-6 text-center text-xs text-slate-400">
-            Nenhuma planilha foi importada até o momento.
+          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-xs text-slate-500">
+            <FileSpreadsheet className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+            <p className="font-medium text-slate-700">Nenhuma planilha importada atualmente</p>
+            <p className="text-slate-400 mt-1">
+              Faça o upload da sua planilha Excel ou CSV acima para visualizar e gerenciar os lançamentos.
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
@@ -512,24 +572,17 @@ export function ImportarPlanilhaView({
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-900">
+                    <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                    <span className="text-xs font-semibold text-slate-900 font-mono">
                       {b.arquivo_nome}
                     </span>
                     <span className="text-[11px] text-slate-400">·</span>
-                    <span className="text-xs text-slate-600 font-medium">
+                    <span className="text-xs text-slate-700 font-medium">
                       Obra: {b.obra_nome}
                     </span>
-                    <span className="text-[11px] text-slate-400">·</span>
-                    <span
-                      className={`text-[11px] font-semibold ${
-                        b.status === 'ativo' ? 'text-emerald-700' : 'text-slate-400 line-through'
-                      }`}
-                    >
-                      {b.status === 'ativo' ? 'Lote Ativo' : 'Lote Revertido/Excluído'}
-                    </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-4 text-xs text-slate-500">
-                    <span>{b.total_registros} registros</span>
+                  <div className="flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
+                    <span className="font-semibold text-slate-700">{b.total_registros} lançamentos</span>
                     <span>·</span>
                     <span className="font-mono tabular-nums">
                       Bruto: {formatarMoeda(b.total_bruto)}
@@ -539,25 +592,77 @@ export function ImportarPlanilhaView({
                       Líq: {formatarMoeda(b.total_liquido)}
                     </span>
                     <span>·</span>
-                    <span>Importado por {b.usuario_nome} em {formatarDataHoraBR(b.created_at)}</span>
+                    <span>Carregada por {b.usuario_nome} em {formatarDataHoraBR(b.created_at)}</span>
                   </div>
                 </div>
 
-                {isAdmin && b.status === 'ativo' && (
-                  <button
-                    onClick={() => handleRollbackBatch(b.id)}
-                    disabled={revertingBatchId === b.id}
-                    className="flex items-center gap-1.5 self-start sm:self-center rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-colors"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    <span>{revertingBatchId === b.id ? 'Revertendo...' : 'Excluir Este Lote'}</span>
-                  </button>
+                {isAdmin && (
+                  <div className="flex items-center gap-2 self-start sm:self-center">
+                    {/* Botão Substituir Planilha */}
+                    <button
+                      onClick={() => handleStartSubstitute(b)}
+                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                      title="Substituir esta planilha por uma nova versão"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 text-emerald-600" />
+                      <span>Substituir</span>
+                    </button>
+
+                    {/* Botão Excluir Planilha */}
+                    <button
+                      onClick={() => setBatchToDelete(b)}
+                      className="flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition-colors"
+                      title="Excluir esta planilha e todos os lançamentos vinculados a ela"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Excluir</span>
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Modal de Confirmação de Exclusão da Planilha */}
+      {batchToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
+            <div className="flex items-center gap-3 text-rose-600">
+              <AlertCircle className="h-6 w-6 shrink-0" />
+              <h3 className="text-base font-semibold text-slate-900">
+                Confirmar Exclusão da Planilha
+              </h3>
+            </div>
+            <p className="mt-3 text-xs text-slate-600 leading-relaxed">
+              Você deseja realmente excluir a planilha{' '}
+              <strong className="font-mono text-slate-900">{batchToDelete.arquivo_nome}</strong>?
+            </p>
+            <p className="mt-2 text-xs text-rose-700 bg-rose-50 p-2.5 rounded-lg">
+              Esta ação removerá todos os <strong>{batchToDelete.total_registros} lançamentos</strong> vinculados a esta planilha e será registrada na trilha de auditoria.
+            </p>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                disabled={deletingBatchId === batchToDelete.id}
+                onClick={() => setBatchToDelete(null)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={deletingBatchId === batchToDelete.id}
+                onClick={handleConfirmDeleteBatch}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                {deletingBatchId === batchToDelete.id ? 'Excluindo...' : 'Confirmar e Excluir Planilha'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

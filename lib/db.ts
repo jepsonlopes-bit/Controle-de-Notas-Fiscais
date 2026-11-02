@@ -1165,7 +1165,146 @@ export function rollbackImportBatch(admin: UserProfile, batchId: string): { remo
   return { removidos };
 }
 
+export function deleteImportBatch(admin: UserProfile, batchId: string): { removidos: number } {
+  if (admin.role !== 'ADMINISTRADOR') {
+    throw new Error('Apenas o Administrador pode excluir lotes de importação.');
+  }
+
+  const db = ensureDatabase();
+  const batchIdx = db.import_batches.findIndex((b) => b.id === batchId);
+  if (batchIdx === -1) {
+    throw new Error('Lote de importação não encontrado.');
+  }
+
+  const batch = db.import_batches[batchIdx];
+  const antes = db.lancamentos.length;
+  db.lancamentos = db.lancamentos.filter((l) => l.lote_importacao_id !== batchId);
+  const removidos = antes - db.lancamentos.length;
+
+  db.import_batches.splice(batchIdx, 1);
+
+  db.audit_logs.unshift({
+    id: `aud-${crypto.randomUUID()}`,
+    usuario_id: admin.id,
+    usuario_nome: admin.nome,
+    usuario_email: admin.email,
+    acao: 'EXCLUSAO_PLANILHA',
+    entidade: 'lote_importacao',
+    registro_id: batchId,
+    obra_id: batch.obra_id,
+    obra_nome: batch.obra_nome,
+    valores_anteriores: { arquivo: batch.arquivo_nome, total_registros: batch.total_registros },
+    valores_novos: null,
+    descricao_resumo: `Administrador ${admin.nome} excluiu a planilha "${batch.arquivo_nome}" (${removidos} registros removidos)`,
+    created_at: new Date().toISOString(),
+  });
+
+  saveDatabase(db);
+  return { removidos };
+}
+
+export function replaceImportBatch(
+  admin: UserProfile,
+  batchId: string,
+  targetObraId: string,
+  arquivo_nome: string,
+  linhasValidas: ValidatedImportRow[]
+): { batch: ImportBatch; totalInseridos: number } {
+  if (admin.role !== 'ADMINISTRADOR') {
+    throw new Error('Apenas o Administrador pode substituir lotes de importação.');
+  }
+
+  const db = ensureDatabase();
+  // Remove registros anteriores vinculados ao lote
+  db.lancamentos = db.lancamentos.filter((l) => l.lote_importacao_id !== batchId);
+
+  let obra = db.obras.find((o) => o.id === targetObraId) || db.obras[0];
+  if (!obra) {
+    throw new Error('Nenhuma obra cadastrada para vincular a planilha.');
+  }
+
+  const now = new Date().toISOString();
+  let somaBruto = 0;
+  let somaLiquido = 0;
+  const novosLancamentos: Lancamento[] = [];
+
+  for (const row of linhasValidas) {
+    if (!row.valida) continue;
+
+    somaBruto += Number(row.valor_bruto) || 0;
+    somaLiquido += Number(row.valor_liquido) || 0;
+
+    novosLancamentos.push({
+      id: `lan-${crypto.randomUUID()}`,
+      obra_id: obra.id,
+      obra_nome: obra.nome,
+      fornecedor: row.fornecedor.trim(),
+      numero_oc: String(row.numero_oc || '').trim(),
+      numero_medicao: row.numero_medicao ? String(row.numero_medicao).trim() : '',
+      numero_nf: String(row.numero_nf || '').trim(),
+      valor_bruto: Number(row.valor_bruto),
+      valor_liquido: Number(row.valor_liquido),
+      data_lancamento: row.data_lancamento,
+      data_pagamento: row.data_pagamento || '',
+      status_pagamento: row.data_pagamento ? 'Pendente' : 'Pendente',
+      categoria_despesa: row.categoria_despesa ? row.categoria_despesa.trim() : '',
+      observacao: row.observacao ? row.observacao.trim() : '',
+      criado_por_id: admin.id,
+      criado_por_nome: admin.nome,
+      lote_importacao_id: batchId,
+      created_at: now,
+      updated_at: now,
+    });
+  }
+
+  const batchIdx = db.import_batches.findIndex((b) => b.id === batchId);
+  const updatedBatch: ImportBatch = {
+    id: batchId,
+    obra_id: obra.id,
+    obra_nome: obra.nome,
+    arquivo_nome,
+    total_registros: novosLancamentos.length,
+    total_bruto: somaBruto,
+    total_liquido: somaLiquido,
+    usuario_id: admin.id,
+    usuario_nome: admin.nome,
+    status: 'ativo',
+    created_at: now,
+  };
+
+  if (batchIdx >= 0) {
+    db.import_batches[batchIdx] = updatedBatch;
+  } else {
+    db.import_batches.unshift(updatedBatch);
+  }
+
+  db.lancamentos.unshift(...novosLancamentos);
+
+  db.audit_logs.unshift({
+    id: `aud-${crypto.randomUUID()}`,
+    usuario_id: admin.id,
+    usuario_nome: admin.nome,
+    usuario_email: admin.email,
+    acao: 'SUBSTITUICAO_PLANILHA',
+    entidade: 'lote_importacao',
+    registro_id: batchId,
+    obra_id: obra.id,
+    obra_nome: obra.nome,
+    valores_anteriores: null,
+    valores_novos: {
+      arquivo: arquivo_nome,
+      total_registros: updatedBatch.total_registros,
+    },
+    descricao_resumo: `Administrador ${admin.nome} substituiu a planilha pela nova versão "${arquivo_nome}" (${updatedBatch.total_registros} registros)`,
+    created_at: now,
+  });
+
+  saveDatabase(db);
+  return { batch: updatedBatch, totalInseridos: novosLancamentos.length };
+}
+
 export function getImportBatches(): ImportBatch[] {
   const db = ensureDatabase();
   return db.import_batches;
 }
+

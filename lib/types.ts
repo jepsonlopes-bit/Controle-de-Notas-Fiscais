@@ -60,6 +60,8 @@ export type AuditAction =
   | 'EXCLUSAO'
   | 'IMPORTACAO'
   | 'EXCLUSAO_LOTE'
+  | 'EXCLUSAO_PLANILHA'
+  | 'SUBSTITUICAO_PLANILHA'
   | 'CADASTRO_OBRA'
   | 'EDICAO_OBRA'
   | 'STATUS_OBRA'

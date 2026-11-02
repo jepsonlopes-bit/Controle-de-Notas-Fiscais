@@ -43,7 +43,7 @@ export default function Home() {
 
   // Dashboard Metrics
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [loadingMetrics, setLoadingMetrics] = useState(false);
+  const [loadingMetrics, setLoadingMetrics] = useState(true);
 
   // Lancamentos Consultation State
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
@@ -143,7 +143,11 @@ export default function Home() {
       if (dataPagInicio) params.append('data_pagamento_inicio', dataPagInicio);
       if (dataPagFim) params.append('data_pagamento_fim', dataPagFim);
 
-      const res = await fetch(`/api/lancamentos?${params.toString()}`);
+      params.append('_t', String(Date.now()));
+
+      const res = await fetch(`/api/lancamentos?${params.toString()}`, {
+        cache: 'no-store',
+      });
       if (res.ok) {
         const data = await res.json();
         setLancamentos(data.data || []);
@@ -215,12 +219,34 @@ export default function Home() {
   }
 
   async function handleDeleteLancamento(id: string) {
-    const res = await fetch(`/api/lancamentos?id=${id}`, {
-      method: 'DELETE',
-    });
-    if (res.ok) {
+    // Atualização otimista imediata na interface
+    setLancamentos((prev) => prev.filter((item) => item.id !== id));
+    setTotalLancamentos((prev) => Math.max(0, prev - 1));
+
+    try {
+      const res = await fetch(`/api/lancamentos?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        alert(data.error || 'Erro ao excluir o lançamento no servidor.');
+        fetchLancamentos();
+        fetchMetrics(selectedObraId);
+        return;
+      }
+
+      await fetchLancamentos();
+      await fetchMetrics(selectedObraId);
+    } catch (err: any) {
+      alert('Falha na conexão ao excluir lançamento: ' + err.message);
       fetchLancamentos();
-      fetchMetrics(selectedObraId);
     }
   }
 
@@ -231,7 +257,7 @@ export default function Home() {
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
           <p className="text-xs font-medium text-slate-300">
-            Carregando Controle de Notas Fiscais...
+            Carregando Controle de Lançamentos...
           </p>
         </div>
       </div>
@@ -266,7 +292,7 @@ export default function Home() {
 
   const pageTitles: Record<string, string> = {
     dashboard: 'Painel Geral',
-    lancamentos: 'Notas Fiscais & Medições',
+    lancamentos: 'Lançamentos',
     importar: 'Importar Planilha Matriz',
     obras: 'Gestão de Obras',
     usuarios: 'Usuários & Permissões',

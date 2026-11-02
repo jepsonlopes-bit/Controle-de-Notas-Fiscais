@@ -190,6 +190,8 @@ export function LancamentosView({
     try {
       await onDeleteLancamento(deletingId);
       setDeletingId(null);
+    } catch (err: any) {
+      alert('Erro ao excluir lançamento: ' + (err.message || 'Falha na operação'));
     } finally {
       setIsDeleting(false);
     }
@@ -668,7 +670,7 @@ export function LancamentosView({
               </h3>
             </div>
             <p className="mt-3 text-xs text-slate-600 leading-relaxed">
-              Você está prestes a excluir este lançamento de nota fiscal/medição.
+              Você está prestes a excluir este lançamento.
               Esta operação será <strong>registrada integralmente na trilha de auditoria</strong> com seus dados, data e hora.
             </p>
             <div className="mt-6 flex items-center justify-end gap-3">

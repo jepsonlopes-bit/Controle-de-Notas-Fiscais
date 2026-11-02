@@ -45,7 +45,7 @@ export function Sidebar({
     },
     {
       id: 'lancamentos',
-      label: 'Notas Fiscais & Medições',
+      label: 'Lançamentos',
       icon: FileSpreadsheet,
       adminOnly: false,
     },

@@ -65,27 +65,6 @@
   ],
   "lancamentos": [
     {
-      "id": "lan-1001",
-      "obra_id": "obra-promorar-01",
-      "obra_nome": "PROMORAR",
-      "fornecedor": "Votorantim Cimentos S/A",
-      "numero_oc": "004521",
-      "numero_medicao": "MED-01",
-      "numero_nf": "0008452",
-      "valor_bruto": 48500.0,
-      "valor_liquido": 44135.0,
-      "data_lancamento": "2026-10-15",
-      "data_pagamento": "2026-10-25",
-      "status_pagamento": "Pago",
-      "data_confirmacao_pagamento": "2026-10-25",
-      "categoria_despesa": "Fundações e Estrutura",
-      "observacao": "Concreto usinado fck 30 MPa - Blocos 1 e 2",
-      "criado_por_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",
-      "criado_por_nome": "Jepson Lopes",
-      "created_at": "2026-10-15T10:30:00.000Z",
-      "updated_at": "2026-10-15T10:30:00.000Z"
-    },
-    {
       "id": "lan-1002",
       "obra_id": "obra-promorar-01",
       "obra_nome": "PROMORAR",
@@ -93,8 +72,8 @@
       "numero_oc": "004522",
       "numero_medicao": "MED-02",
       "numero_nf": "0012984",
-      "valor_bruto": 82300.0,
-      "valor_liquido": 74893.0,
+      "valor_bruto": 82300,
+      "valor_liquido": 74893,
       "data_lancamento": "2026-10-18",
       "data_pagamento": "2026-11-05",
       "status_pagamento": "Pendente",
@@ -114,8 +93,8 @@
       "numero_oc": "004545",
       "numero_medicao": "MED-04",
       "numero_nf": "0000412",
-      "valor_bruto": 55000.0,
-      "valor_liquido": 48950.0,
+      "valor_bruto": 55000,
+      "valor_liquido": 48950,
       "data_lancamento": "2026-10-28",
       "data_pagamento": "2026-11-08",
       "status_pagamento": "Pendente",
@@ -135,8 +114,8 @@
       "numero_oc": "004538",
       "numero_medicao": "MED-03",
       "numero_nf": "0005721",
-      "valor_bruto": 29800.0,
-      "valor_liquido": 28310.0,
+      "valor_bruto": 29800,
+      "valor_liquido": 28310,
       "data_lancamento": "2026-10-25",
       "data_pagamento": "2026-11-20",
       "status_pagamento": "A Vencer",
@@ -156,8 +135,8 @@
       "numero_oc": "004530",
       "numero_medicao": "",
       "numero_nf": "0034110",
-      "valor_bruto": 16450.0,
-      "valor_liquido": 16450.0,
+      "valor_bruto": 16450,
+      "valor_liquido": 16450,
       "data_lancamento": "2026-10-22",
       "data_pagamento": "2026-11-12",
       "status_pagamento": "Pendente",
@@ -177,8 +156,8 @@
       "numero_oc": "004571",
       "numero_medicao": "MED-01",
       "numero_nf": "0001550",
-      "valor_bruto": 34000.0,
-      "valor_liquido": 30260.0,
+      "valor_bruto": 34000,
+      "valor_liquido": 30260,
       "data_lancamento": "2026-10-19",
       "data_pagamento": "2026-10-28",
       "status_pagamento": "Pago",
@@ -198,8 +177,8 @@
       "numero_oc": "004560",
       "numero_medicao": "MED-02",
       "numero_nf": "0098412",
-      "valor_bruto": 12600.0,
-      "valor_liquido": 12600.0,
+      "valor_bruto": 12600,
+      "valor_liquido": 12600,
       "data_lancamento": "2026-10-14",
       "data_pagamento": "2026-10-20",
       "status_pagamento": "Pago",
@@ -210,30 +189,53 @@
       "criado_por_nome": "Jepson Lopes",
       "created_at": "2026-10-14T15:10:00.000Z",
       "updated_at": "2026-10-14T15:10:00.000Z"
-    },
-    {
-      "id": "lan-1008",
-      "obra_id": "obra-promorar-01",
-      "obra_nome": "PROMORAR",
-      "fornecedor": "Dell Computadores do Brasil",
-      "numero_oc": "004590",
-      "numero_medicao": "",
-      "numero_nf": "0048123",
-      "valor_bruto": 9400.0,
-      "valor_liquido": 9400.0,
-      "data_lancamento": "2026-10-29",
-      "data_pagamento": "2026-11-15",
-      "status_pagamento": "A Vencer",
-      "data_confirmacao_pagamento": "",
-      "categoria_despesa": "Despesas Administrativas",
-      "observacao": "Notebooks para equipe técnica do canteiro",
-      "criado_por_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",
-      "criado_por_nome": "Jepson Lopes",
-      "created_at": "2026-10-29T11:00:00.000Z",
-      "updated_at": "2026-10-29T11:00:00.000Z"
     }
   ],
   "audit_logs": [
+    {
+      "id": "aud-aa3b9284-3f7b-4528-9a2b-f1cf229bc936",
+      "usuario_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",
+      "usuario_nome": "Jepson Lopes",
+      "usuario_email": "jepson.lopes@gmail.com",
+      "acao": "EXCLUSAO",
+      "entidade": "lancamento",
+      "registro_id": "lan-1008",
+      "obra_id": "obra-promorar-01",
+      "obra_nome": "PROMORAR",
+      "valores_anteriores": {
+        "fornecedor": "Dell Computadores do Brasil",
+        "numero_nf": "0048123",
+        "numero_oc": "004590",
+        "valor_bruto": 9400,
+        "valor_liquido": 9400,
+        "data_lancamento": "2026-10-29"
+      },
+      "valores_novos": null,
+      "descricao_resumo": "Exclusão do registro NF 0048123 de Dell Computadores do Brasil (Valor: R$ 9400.00)",
+      "created_at": "2026-11-02T12:58:18.677Z"
+    },
+    {
+      "id": "aud-adac82cc-29ee-4161-bd02-106a16c512c0",
+      "usuario_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",
+      "usuario_nome": "Jepson Lopes",
+      "usuario_email": "jepson.lopes@gmail.com",
+      "acao": "EXCLUSAO",
+      "entidade": "lancamento",
+      "registro_id": "lan-1001",
+      "obra_id": "obra-promorar-01",
+      "obra_nome": "PROMORAR",
+      "valores_anteriores": {
+        "fornecedor": "Votorantim Cimentos S/A",
+        "numero_nf": "0008452",
+        "numero_oc": "004521",
+        "valor_bruto": 48500,
+        "valor_liquido": 44135,
+        "data_lancamento": "2026-10-15"
+      },
+      "valores_novos": null,
+      "descricao_resumo": "Exclusão do registro NF 0008452 de Votorantim Cimentos S/A (Valor: R$ 48500.00)",
+      "created_at": "2026-11-02T12:47:22.874Z"
+    },
     {
       "id": "aud-100",
       "usuario_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",
@@ -268,8 +270,8 @@
       "valores_novos": {
         "fornecedor": "Dell Computadores do Brasil",
         "numero_nf": "0048123",
-        "valor_bruto": 9400.0,
-        "valor_liquido": 9400.0
+        "valor_bruto": 9400,
+        "valor_liquido": 9400
       },
       "descricao_resumo": "Inclusão de NF 0048123 (Dell Computadores do Brasil) em Despesa Geral",
       "created_at": "2026-10-29T11:00:00.000Z"
@@ -288,8 +290,8 @@
       "valores_novos": {
         "fornecedor": "Empreiteira Silva & Santos Construções",
         "numero_nf": "0000412",
-        "valor_bruto": 55000.0,
-        "valor_liquido": 48950.0
+        "valor_bruto": 55000,
+        "valor_liquido": 48950
       },
       "descricao_resumo": "Inclusão de NF 0000412 (Empreiteira Silva & Santos Construções) na obra PROMORAR",
       "created_at": "2026-10-28T16:00:00.000Z"
@@ -308,8 +310,8 @@
       "valores_novos": {
         "fornecedor": "Gerdau Aços Longos S/A",
         "numero_nf": "0012984",
-        "valor_bruto": 82300.0,
-        "valor_liquido": 74893.0
+        "valor_bruto": 82300,
+        "valor_liquido": 74893
       },
       "descricao_resumo": "Inclusão de NF 0012984 (Gerdau Aços Longos S/A) na obra PROMORAR",
       "created_at": "2026-10-18T14:20:00.000Z"
@@ -334,20 +336,6 @@
       "created_at": "2026-11-01T14:05:00.000Z"
     }
   ],
-  "import_batches": [
-    {
-      "id": "lote-exemplo-01",
-      "obra_id": "obra-promorar-01",
-      "obra_nome": "PROMORAR",
-      "arquivo_nome": "Planilha_Matriz_Promorar_Outubro.xlsx",
-      "total_registros": 5,
-      "total_bruto": 232050.0,
-      "total_liquido": 212738.0,
-      "usuario_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",
-      "usuario_nome": "Jepson Lopes",
-      "status": "ativo",
-      "created_at": "2026-10-30T17:00:00.000Z"
-    }
-  ],
+  "import_batches": [],
   "version": 1
 }

@@ -8,6 +8,8 @@ import {
   checkDuplicateLancamento,
 } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
   if (!user) {
@@ -43,7 +45,11 @@ export async function GET(req: NextRequest) {
     sort_order,
   });
 
-  return NextResponse.json(result);
+  return NextResponse.json(result, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -157,7 +163,16 @@ export async function DELETE(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const id = searchParams.get('id');
+  let id = searchParams.get('id');
+
+  if (!id) {
+    try {
+      const body = await req.json();
+      id = body?.id;
+    } catch {
+      // ignore
+    }
+  }
 
   if (!id) {
     return NextResponse.json({ error: 'ID do lançamento é obrigatório.' }, { status: 400 });
@@ -165,7 +180,14 @@ export async function DELETE(req: NextRequest) {
 
   try {
     deleteLancamento(user, id);
-    return NextResponse.json({ message: 'Registro excluído com sucesso e registrado na auditoria.' });
+    return NextResponse.json(
+      { message: 'Registro excluído com sucesso e registrado na auditoria.' },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
+    );
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Erro ao excluir lançamento.' }, { status: 400 });
   }
