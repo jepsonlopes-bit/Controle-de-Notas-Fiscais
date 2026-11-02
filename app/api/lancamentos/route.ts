@@ -5,6 +5,7 @@ import {
   createLancamento,
   updateLancamento,
   deleteLancamento,
+  clearAllLancamentos,
   checkDuplicateLancamento,
 } from '@/lib/db';
 
@@ -163,14 +164,37 @@ export async function DELETE(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
+  const action = searchParams.get('action');
   let id = searchParams.get('id');
 
-  if (!id) {
+  let bodyAction = '';
+  if (!id && !action) {
     try {
       const body = await req.json();
       id = body?.id;
+      bodyAction = body?.action;
     } catch {
       // ignore
+    }
+  }
+
+  // Ação de zerar definitivamente todos os registros
+  if (action === 'zerar_todos' || bodyAction === 'zerar_todos') {
+    try {
+      const { totalRemovidos } = clearAllLancamentos(user);
+      return NextResponse.json(
+        {
+          message: `Todos os ${totalRemovidos} lançamentos foram zerados definitivamente com sucesso.`,
+          totalRemovidos,
+        },
+        {
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          },
+        }
+      );
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message || 'Erro ao zerar lançamentos.' }, { status: 400 });
     }
   }
 

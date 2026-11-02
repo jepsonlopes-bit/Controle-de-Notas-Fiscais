@@ -439,25 +439,30 @@ export function ImportarPlanilhaView({
             {/* Confirmation CTA (Admin Only) */}
             <div>
               {isAdmin ? (
-                <button
-                  onClick={handleConfirmImport}
-                  disabled={isConfirming || validationResult.total_validas === 0}
-                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  {isConfirming ? (
-                    'Gravando no banco...'
-                  ) : substitutingBatch ? (
-                    <>
-                      <span>Confirmar Substituição ({validationResult.total_validas} Registros)</span>
-                      <RefreshCw className="h-4 w-4" />
-                    </>
-                  ) : (
-                    <>
-                      <span>Confirmar e Importar {validationResult.total_validas} Registros</span>
-                      <ArrowRight className="h-4 w-4" />
-                    </>
-                  )}
-                </button>
+                <>
+                  <button
+                    onClick={handleConfirmImport}
+                    disabled={isConfirming || validationResult.total_validas === 0}
+                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {isConfirming ? (
+                      'Gravando e definindo lançamentos padrão...'
+                    ) : substitutingBatch ? (
+                      <>
+                        <span>Confirmar Substituição ({validationResult.total_validas} Registros)</span>
+                        <RefreshCw className="h-4 w-4" />
+                      </>
+                    ) : (
+                      <>
+                        <span>Confirmar e Tornar Lançamentos Padrões ({validationResult.total_validas} Registros)</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </button>
+                  <p className="mt-1.5 text-[11px] text-emerald-700 font-medium">
+                    ✓ Ao confirmar, estes registros se tornarão a base oficial e padrão do sistema.
+                  </p>
+                </>
               ) : (
                 <div className="rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-800 font-medium">
                   Apenas o Administrador pode confirmar a importação

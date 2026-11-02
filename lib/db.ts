@@ -195,6 +195,18 @@ function saveDatabase(data: DatabaseSchema): void {
   // Atualiza cache em memória imediatamente
   globalThis.__appDatabaseCache = data;
 
+  // Atualiza também o arquivo de seed base (data/app_database.json) no repositório,
+  // tornando quaisquer lançamentos novos ou planilhas importadas os registros padrão do sistema.
+  try {
+    if (fs.existsSync(SEED_FILE)) {
+      const tempSeed = `${SEED_FILE}.tmp.${Date.now()}`;
+      fs.writeFileSync(tempSeed, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(tempSeed, SEED_FILE);
+    }
+  } catch {
+    // Em ambientes serverless estritamente somente leitura (/var/task), continua gravando no diretório gravável
+  }
+
   const { dir, file } = resolveWritableDbPaths();
 
   try {
@@ -1036,6 +1048,33 @@ export function deleteLancamento(user: UserProfile, id: string): void {
   });
 
   saveDatabase(db);
+}
+
+export function clearAllLancamentos(user: UserProfile): { totalRemovidos: number } {
+  if (user.role !== 'ADMINISTRADOR') {
+    throw new Error('Acesso negado: apenas administradores podem zerar os lançamentos.');
+  }
+
+  const db = ensureDatabase();
+  const totalRemovidos = db.lancamentos.length;
+  db.lancamentos = [];
+  db.import_batches = [];
+
+  db.audit_logs.unshift({
+    id: `aud-${crypto.randomUUID()}`,
+    usuario_id: user.id,
+    usuario_nome: user.nome,
+    usuario_email: user.email,
+    acao: 'EXCLUSAO',
+    entidade: 'lancamento',
+    valores_anteriores: { total_lancamentos: totalRemovidos },
+    valores_novos: { total_lancamentos: 0 },
+    descricao_resumo: `Administrador ${user.nome} zerou definitivamente todos os ${totalRemovidos} lançamentos do sistema.`,
+    created_at: new Date().toISOString(),
+  });
+
+  saveDatabase(db);
+  return { totalRemovidos };
 }
 
 // -------------------------------------------------------------

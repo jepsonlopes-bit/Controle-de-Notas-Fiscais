@@ -521,13 +521,22 @@ export function LancamentosView({
                 </tr>
               ) : lancamentos.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center">
-                    <p className="text-sm font-medium text-slate-700">
-                      Nenhum lançamento encontrado
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Tente ajustar os filtros ou cadastre um novo registro.
-                    </p>
+                  <td colSpan={12} className="py-16 text-center">
+                    <div className="mx-auto max-w-md space-y-2">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                        <FileSpreadsheet className="h-6 w-6" />
+                      </div>
+                      <p className="text-base font-semibold text-slate-800">
+                        {hasActiveFilters ? 'Nenhum lançamento encontrado para os filtros aplicados' : 'Nenhum lançamento cadastrado (Banco Zerado)'}
+                      </p>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {hasActiveFilters ? (
+                          'Tente limpar os filtros de pesquisa para visualizar outros registros.'
+                        ) : (
+                          'Todos os registros anteriores foram zerados definitivamente. Acesse a aba "Importar Planilha" para carregar seus dados reais e torná-los a base padrão do sistema, ou clique no botão "Cadastrar Lançamento".'
+                        )}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
