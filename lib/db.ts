@@ -554,6 +554,47 @@ export function updateUserRole(admin: UserProfile, userId: string, novaRole: Use
   return stripPassword(user);
 }
 
+export function deleteUser(admin: UserProfile, userId: string): boolean {
+  if (admin.role !== 'ADMINISTRADOR') {
+    throw new Error('Apenas administradores podem excluir usuários.');
+  }
+
+  const db = ensureDatabase();
+  const index = db.users.findIndex((u) => u.id === userId);
+  if (index === -1) throw new Error('Usuário não encontrado.');
+
+  const target = db.users[index];
+  if (target.id === admin.id) {
+    throw new Error('Você não pode excluir sua própria conta de administrador.');
+  }
+
+  if (target.role === 'ADMINISTRADOR') {
+    const totalAdmins = db.users.filter((u) => u.role === 'ADMINISTRADOR' && u.status === 'ativo').length;
+    if (totalAdmins <= 1) {
+      throw new Error('Não é possível excluir o único administrador ativo do sistema.');
+    }
+  }
+
+  db.users.splice(index, 1);
+
+  db.audit_logs.unshift({
+    id: `aud-${crypto.randomUUID()}`,
+    usuario_id: admin.id,
+    usuario_nome: admin.nome,
+    usuario_email: admin.email,
+    acao: 'EXCLUSAO',
+    entidade: 'usuario',
+    registro_id: target.id,
+    valores_anteriores: { nome: target.nome, email: target.email, role: target.role },
+    valores_novos: null,
+    descricao_resumo: `Administrador ${admin.nome} excluiu o usuário ${target.nome} (${target.email})`,
+    created_at: new Date().toISOString(),
+  });
+
+  saveDatabase(db);
+  return true;
+}
+
 // -------------------------------------------------------------
 // GESTÃO DE OBRAS
 // -------------------------------------------------------------
@@ -1717,6 +1758,7 @@ export function getImportBatches(): ImportBatch[] {
 }
 
 export function getDatabaseSnapshot(): {
+  users: UserProfile[];
   obras: Obra[];
   lancamentos: Lancamento[];
   import_batches: ImportBatch[];
@@ -1724,6 +1766,7 @@ export function getDatabaseSnapshot(): {
 } {
   const db = ensureDatabase();
   return {
+    users: db.users.map(stripPassword),
     obras: db.obras,
     lancamentos: db.lancamentos,
     import_batches: db.import_batches,
@@ -1734,25 +1777,87 @@ export function getDatabaseSnapshot(): {
 export function restoreDatabaseSnapshot(
   user: UserProfile,
   snapshot: {
+    users?: UserProfile[];
     obras?: Obra[];
     lancamentos?: Lancamento[];
     import_batches?: ImportBatch[];
   }
-): { obras: Obra[]; lancamentos: Lancamento[]; import_batches: ImportBatch[] } {
+): { users: UserProfile[]; obras: Obra[]; lancamentos: Lancamento[]; import_batches: ImportBatch[] } {
   const db = ensureDatabase();
 
   let modified = false;
 
+  // 1. Mesclagem e restauração de usuários com senhas visíveis
+  if (Array.isArray(snapshot.users) && snapshot.users.length > 0) {
+    for (const u of snapshot.users) {
+      if (!u.id || !u.email) continue;
+      const normalizedEmail = u.email.trim().toLowerCase();
+      const existing = db.users.find((item) => item.id === u.id || item.email.toLowerCase() === normalizedEmail);
+      if (existing) {
+        let userChanged = false;
+        if (u.nome && existing.nome !== u.nome) { existing.nome = u.nome; userChanged = true; }
+        if (u.cargo !== undefined && existing.cargo !== u.cargo) { existing.cargo = u.cargo; userChanged = true; }
+        if (u.role && existing.role !== u.role) { existing.role = u.role; userChanged = true; }
+        if (u.status && existing.status !== u.status) { existing.status = u.status; userChanged = true; }
+        if (u.senha_visivel && existing.senha_visivel !== u.senha_visivel) {
+          existing.senha_visivel = u.senha_visivel;
+          const { hash, salt } = hashPassword(u.senha_visivel);
+          existing.passwordHash = hash;
+          existing.passwordSalt = salt;
+          userChanged = true;
+        }
+        if (userChanged) {
+          existing.updated_at = new Date().toISOString();
+          modified = true;
+        }
+      } else {
+        const plainPassword = u.senha_visivel || '123456';
+        const { hash, salt } = hashPassword(plainPassword);
+        const now = new Date().toISOString();
+        db.users.push({
+          id: u.id,
+          email: normalizedEmail,
+          nome: u.nome || 'Novo Usuário',
+          cargo: u.cargo || '',
+          role: u.role || 'USUARIO',
+          status: u.status || 'ativo',
+          obras_permitidas: u.obras_permitidas || [],
+          created_at: u.created_at || now,
+          updated_at: u.updated_at || now,
+          ultimo_login: u.ultimo_login,
+          passwordHash: hash,
+          passwordSalt: salt,
+          senha_visivel: plainPassword,
+        });
+        modified = true;
+      }
+    }
+  }
+
+  // 2. Mesclagem e restauração de obras
   if (Array.isArray(snapshot.obras) && snapshot.obras.length > 0) {
-    db.obras = snapshot.obras;
+    const obraMap = new Map<string, Obra>();
+    db.obras.forEach((o) => obraMap.set(o.id, o));
+    snapshot.obras.forEach((o) => obraMap.set(o.id, o));
+    db.obras = Array.from(obraMap.values());
     modified = true;
   }
+
+  // 3. Mesclagem e restauração de lançamentos
   if (Array.isArray(snapshot.lancamentos) && snapshot.lancamentos.length > 0) {
-    db.lancamentos = snapshot.lancamentos;
+    const lancMap = new Map<string, Lancamento>();
+    db.lancamentos.forEach((l) => lancMap.set(l.id, l));
+    snapshot.lancamentos.forEach((l) => lancMap.set(l.id, l));
+    db.lancamentos = Array.from(lancMap.values());
     modified = true;
   }
+
+  // 4. Mesclagem e restauração de lotes de importação
   if (Array.isArray(snapshot.import_batches) && snapshot.import_batches.length > 0) {
-    db.import_batches = snapshot.import_batches;
+    const batchMap = new Map<string, ImportBatch>();
+    db.import_batches.forEach((b) => batchMap.set(b.id, b));
+    snapshot.import_batches.forEach((b) => batchMap.set(b.id, b));
+    db.import_batches = Array.from(batchMap.values());
     modified = true;
   }
 
@@ -1761,6 +1866,7 @@ export function restoreDatabaseSnapshot(
   }
 
   return {
+    users: db.users.map(stripPassword),
     obras: db.obras,
     lancamentos: db.lancamentos,
     import_batches: db.import_batches,

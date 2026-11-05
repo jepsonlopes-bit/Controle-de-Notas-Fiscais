@@ -1,8 +1,45 @@
-import { Obra, Lancamento, ImportBatch, DashboardMetrics } from './types';
+import { Obra, Lancamento, ImportBatch, DashboardMetrics, UserProfile } from './types';
 
 const STORAGE_KEY = 'controle_nf_master_store_v4';
 
+const DEFAULT_USERS_SEED: UserProfile[] = [
+  {
+    id: 'usr-788f5c46-337e-484e-b359-4d9fe2cf900c',
+    email: 'jepson.lopes@gmail.com',
+    nome: 'Jepson Lopes',
+    cargo: 'Diretor / Administrador Geral',
+    role: 'ADMINISTRADOR',
+    status: 'ativo',
+    senha_visivel: '123456',
+    created_at: '2026-11-01T14:10:51.922Z',
+    updated_at: '2026-11-01T14:10:51.922Z',
+  },
+  {
+    id: 'usr-mariana-02',
+    email: 'mariana.souza@empresa.com.br',
+    nome: 'Mariana Souza',
+    cargo: 'Engenheira de Planejamento',
+    role: 'USUARIO',
+    status: 'ativo',
+    senha_visivel: '123456',
+    created_at: '2026-11-01T14:15:00.000Z',
+    updated_at: '2026-11-01T14:15:00.000Z',
+  },
+  {
+    id: 'usr-carlos-03',
+    email: 'carlos.silveira@empresa.com.br',
+    nome: 'Carlos Silveira',
+    cargo: 'Comprador de Suprimentos',
+    role: 'USUARIO',
+    status: 'ativo',
+    senha_visivel: '123456',
+    created_at: '2026-11-01T14:18:00.000Z',
+    updated_at: '2026-11-01T14:18:00.000Z',
+  },
+];
+
 export interface ClientDataStore {
+  users: UserProfile[];
   obras: Obra[];
   lancamentos: Lancamento[];
   import_batches: ImportBatch[];
@@ -11,7 +48,7 @@ export interface ClientDataStore {
 
 export function getClientSnapshot(): ClientDataStore {
   if (typeof window === 'undefined') {
-    return { obras: [], lancamentos: [], import_batches: [], last_updated: '' };
+    return { users: DEFAULT_USERS_SEED, obras: [], lancamentos: [], import_batches: [], last_updated: '' };
   }
 
   try {
@@ -26,6 +63,7 @@ export function getClientSnapshot(): ClientDataStore {
             const parsed = JSON.parse(oldRaw);
             if (Array.isArray(parsed.obras) || Array.isArray(parsed.lancamentos)) {
               const migrated: ClientDataStore = {
+                users: Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : DEFAULT_USERS_SEED,
                 obras: parsed.obras || [],
                 lancamentos: parsed.lancamentos || [],
                 import_batches: parsed.import_batches || [],
@@ -37,11 +75,21 @@ export function getClientSnapshot(): ClientDataStore {
           } catch {}
         }
       }
-      return { obras: [], lancamentos: [], import_batches: [], last_updated: '' };
+      const initial: ClientDataStore = {
+        users: DEFAULT_USERS_SEED,
+        obras: [],
+        lancamentos: [],
+        import_batches: [],
+        last_updated: new Date().toISOString(),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+      return initial;
     }
 
     const parsed = JSON.parse(raw);
+    const usersList = Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : DEFAULT_USERS_SEED;
     return {
+      users: usersList,
       obras: Array.isArray(parsed.obras) ? parsed.obras : [],
       lancamentos: Array.isArray(parsed.lancamentos) ? parsed.lancamentos : [],
       import_batches: Array.isArray(parsed.import_batches) ? parsed.import_batches : [],
@@ -49,22 +97,24 @@ export function getClientSnapshot(): ClientDataStore {
     };
   } catch (err) {
     console.warn('Erro ao ler armazenamento local:', err);
-    return { obras: [], lancamentos: [], import_batches: [], last_updated: '' };
+    return { users: DEFAULT_USERS_SEED, obras: [], lancamentos: [], import_batches: [], last_updated: '' };
   }
 }
 
 export function saveClientSnapshot(partial: {
+  users?: UserProfile[];
   obras?: Obra[];
   lancamentos?: Lancamento[];
   import_batches?: ImportBatch[];
 }): ClientDataStore {
   if (typeof window === 'undefined') {
-    return { obras: [], lancamentos: [], import_batches: [], last_updated: '' };
+    return { users: DEFAULT_USERS_SEED, obras: [], lancamentos: [], import_batches: [], last_updated: '' };
   }
 
   try {
     const current = getClientSnapshot();
     const updated: ClientDataStore = {
+      users: partial.users !== undefined ? partial.users : current.users,
       obras: partial.obras !== undefined ? partial.obras : current.obras,
       lancamentos: partial.lancamentos !== undefined ? partial.lancamentos : current.lancamentos,
       import_batches: partial.import_batches !== undefined ? partial.import_batches : current.import_batches,
@@ -75,8 +125,37 @@ export function saveClientSnapshot(partial: {
     return updated;
   } catch (err) {
     console.warn('Erro ao gravar armazenamento local:', err);
-    return { obras: [], lancamentos: [], import_batches: [], last_updated: '' };
+    return { users: DEFAULT_USERS_SEED, obras: [], lancamentos: [], import_batches: [], last_updated: '' };
   }
+}
+
+export function saveUserLocally(user: UserProfile): ClientDataStore {
+  const current = getClientSnapshot();
+  const existingIdx = current.users.findIndex(
+    (u) => u.id === user.id || (u.email && u.email.toLowerCase() === user.email.toLowerCase())
+  );
+  const updatedUsers = [...current.users];
+
+  if (existingIdx >= 0) {
+    updatedUsers[existingIdx] = {
+      ...updatedUsers[existingIdx],
+      ...user,
+      senha_visivel: user.senha_visivel || updatedUsers[existingIdx].senha_visivel || '123456',
+    };
+  } else {
+    updatedUsers.push({
+      ...user,
+      senha_visivel: user.senha_visivel || '123456',
+    });
+  }
+
+  return saveClientSnapshot({ users: updatedUsers });
+}
+
+export function deleteUserLocally(userId: string): ClientDataStore {
+  const current = getClientSnapshot();
+  const updatedUsers = current.users.filter((u) => u.id !== userId);
+  return saveClientSnapshot({ users: updatedUsers });
 }
 
 export function saveLancamentoLocally(lancamento: Lancamento): ClientDataStore {
@@ -138,6 +217,7 @@ export async function syncStorageWithServer(): Promise<ClientDataStore> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        clientUsers: clientData.users,
         clientObras: clientData.obras,
         clientLancamentos: clientData.lancamentos,
         clientBatches: clientData.import_batches,
@@ -146,7 +226,23 @@ export async function syncStorageWithServer(): Promise<ClientDataStore> {
 
     if (res.ok) {
       const serverData = await res.json();
+
+      // Mesclagem de usuários preservando senhas visíveis locais mais recentes
+      const userMap = new Map<string, UserProfile>();
+      clientData.users.forEach((u) => userMap.set(u.id, u));
+      if (Array.isArray(serverData.users)) {
+        serverData.users.forEach((su: UserProfile) => {
+          const local = userMap.get(su.id);
+          userMap.set(su.id, {
+            ...su,
+            senha_visivel: su.senha_visivel || local?.senha_visivel || '123456',
+          });
+        });
+      }
+      const mergedUsers = Array.from(userMap.values());
+
       const mergedStore = saveClientSnapshot({
+        users: mergedUsers,
         obras: Array.isArray(serverData.obras) ? serverData.obras : clientData.obras,
         lancamentos: Array.isArray(serverData.lancamentos) ? serverData.lancamentos : clientData.lancamentos,
         import_batches: Array.isArray(serverData.import_batches) ? serverData.import_batches : clientData.import_batches,

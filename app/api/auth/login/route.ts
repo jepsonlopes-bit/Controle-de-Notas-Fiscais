@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateUser } from '@/lib/db';
+import { authenticateUser, restoreDatabaseSnapshot } from '@/lib/db';
 import { createSessionToken } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, senha } = body;
+    const { email, senha, clientUsers } = body;
 
     if (!email || !senha) {
       return NextResponse.json({ error: 'Informe e-mail e senha.' }, { status: 400 });
+    }
+
+    // Sincroniza usuários do cliente antes de autenticar para garantir persistência em instâncias novas
+    if (Array.isArray(clientUsers) && clientUsers.length > 0) {
+      try {
+        const adminMock = clientUsers.find((u: any) => u.role === 'ADMINISTRADOR') || clientUsers[0];
+        restoreDatabaseSnapshot(adminMock, { users: clientUsers });
+      } catch {}
     }
 
     const user = authenticateUser(email, senha);

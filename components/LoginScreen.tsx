@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Lock, Mail, ArrowRight, AlertTriangle, Building2, Shield } from 'lucide-react';
 import { UserProfile } from '@/lib/types';
+import { getClientSnapshot } from '@/lib/clientStorage';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: UserProfile) => void;
@@ -21,10 +22,15 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setLoading(true);
 
     try {
+      const snap = typeof window !== 'undefined' ? getClientSnapshot() : null;
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, senha }),
+        body: JSON.stringify({
+          email,
+          senha,
+          clientUsers: snap ? snap.users : undefined,
+        }),
       });
 
       const data = await res.json();

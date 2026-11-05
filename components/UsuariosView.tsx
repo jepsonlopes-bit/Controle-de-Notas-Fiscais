@@ -14,10 +14,18 @@ import {
   Eye,
   EyeOff,
   Pencil,
+  Trash2,
   X,
 } from 'lucide-react';
 import { UserProfile, Obra, UserRole, UserStatus } from '@/lib/types';
 import { formatarDataHoraBR } from '@/lib/formatters';
+import {
+  getClientSnapshot,
+  saveClientSnapshot,
+  saveUserLocally,
+  deleteUserLocally,
+  syncStorageWithServer,
+} from '@/lib/clientStorage';
 
 interface UsuariosViewProps {
   currentUser: UserProfile;
@@ -25,8 +33,11 @@ interface UsuariosViewProps {
 }
 
 export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
-  const [usuarios, setUsuarios] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Inicializa imediatamente com a lista do armazenamento mestre local para não sumir da tela
+  const [usuarios, setUsuarios] = useState<UserProfile[]>(() => {
+    return typeof window !== 'undefined' ? getClientSnapshot().users : [];
+  });
+  const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -55,19 +66,42 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
+  // Modal de Exclusão de Usuário
+  const [deletingUser, setDeletingUser] = useState<UserProfile | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+
   useEffect(() => {
     fetchUsuarios();
   }, []);
 
   async function fetchUsuarios() {
-    setLoading(true);
     try {
       const res = await fetch('/api/usuarios');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setUsuarios(data.usuarios || []);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Erro ao carregar usuários.');
+
+      // Mesclagem com master store local preservando senhas locais mais recentes
+      const localSnap = getClientSnapshot();
+      const map = new Map<string, UserProfile>();
+      localSnap.users.forEach((u) => map.set(u.id, u));
+      if (Array.isArray(data.usuarios)) {
+        data.usuarios.forEach((su: UserProfile) => {
+          const local = map.get(su.id);
+          map.set(su.id, {
+            ...su,
+            senha_visivel: su.senha_visivel || local?.senha_visivel || '123456',
+          });
+        });
+      }
+      const merged = Array.from(map.values());
+      setUsuarios(merged);
+      saveClientSnapshot({ users: merged });
+    } catch {
+      // Em caso de offline ou container frio, preserva os usuários locais
+      const localSnap = getClientSnapshot();
+      if (localSnap.users.length > 0) {
+        setUsuarios(localSnap.users);
+      }
     } finally {
       setLoading(false);
     }
@@ -102,6 +136,27 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao criar usuário.');
 
+      if (data.usuario) {
+        // Grava de imediato no armazenamento mestre do cliente
+        saveUserLocally({
+          ...data.usuario,
+          senha_visivel: senha,
+        });
+      } else {
+        saveUserLocally({
+          id: `usr-${Date.now()}`,
+          email,
+          nome,
+          cargo,
+          role,
+          status: 'ativo',
+          senha_visivel: senha,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      await syncStorageWithServer();
       setSuccessMsg(data.message || 'Usuário cadastrado com sucesso.');
       setModalOpen(false);
       setNome('');
@@ -109,7 +164,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
       setSenha('');
       setCargo('');
       setShowCreatePassword(false);
-      fetchUsuarios();
+      await fetchUsuarios();
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro ao cadastrar usuário.');
     } finally {
@@ -157,9 +212,31 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao atualizar dados do usuário.');
 
+      if (data.usuario) {
+        saveUserLocally({
+          ...data.usuario,
+          senha_visivel: editSenha,
+        });
+      } else {
+        const localSnap = getClientSnapshot();
+        const current = localSnap.users.find((u) => u.id === editingUserId);
+        if (current) {
+          saveUserLocally({
+            ...current,
+            nome: editNome,
+            email: editEmail,
+            cargo: editCargo,
+            role: editRole,
+            status: editStatus,
+            senha_visivel: editSenha,
+          });
+        }
+      }
+
+      await syncStorageWithServer();
       setSuccessMsg(data.message || 'Usuário atualizado com sucesso.');
       setEditModalOpen(false);
-      fetchUsuarios();
+      await fetchUsuarios();
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro ao atualizar usuário.');
     } finally {
@@ -186,8 +263,15 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
+      if (data.usuario) {
+        saveUserLocally(data.usuario);
+      } else {
+        saveUserLocally({ ...user, status: novoStatus });
+      }
+
+      await syncStorageWithServer();
       setSuccessMsg(data.message);
-      fetchUsuarios();
+      await fetchUsuarios();
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro ao alterar status.');
     }
@@ -212,10 +296,42 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
+      if (data.usuario) {
+        saveUserLocally(data.usuario);
+      } else {
+        saveUserLocally({ ...user, role: novaRole });
+      }
+
+      await syncStorageWithServer();
       setSuccessMsg(data.message);
-      fetchUsuarios();
+      await fetchUsuarios();
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro ao alterar perfil.');
+    }
+  }
+
+  async function handleConfirmDelete() {
+    if (!deletingUser) return;
+    setDeleteSubmitting(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const res = await fetch(`/api/usuarios?id=${encodeURIComponent(deletingUser.id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao excluir usuário.');
+
+      deleteUserLocally(deletingUser.id);
+      await syncStorageWithServer();
+      setSuccessMsg(`Usuário "${deletingUser.nome}" excluído com sucesso.`);
+      setDeletingUser(null);
+      await fetchUsuarios();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Erro ao excluir usuário.');
+    } finally {
+      setDeleteSubmitting(false);
     }
   }
 
@@ -369,6 +485,17 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                             }`}
                           >
                             {u.status === 'ativo' ? 'Bloquear' : 'Ativar'}
+                          </button>
+
+                          {/* Botão de Excluir */}
+                          <button
+                            disabled={isCurrent}
+                            onClick={() => setDeletingUser(u)}
+                            className="flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-[11px] font-medium text-rose-600 hover:bg-rose-50 hover:border-rose-300 disabled:opacity-30 transition-colors"
+                            title={isCurrent ? 'Não é possível excluir sua própria conta' : 'Excluir usuário permanentemente'}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span>Excluir</span>
                           </button>
                         </div>
                       </td>
@@ -652,6 +779,49 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmação de Exclusão de Usuário */}
+      {deletingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-xl border border-rose-200 bg-white p-6 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-semibold text-slate-900">
+                  Excluir Usuário
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+                  Tem certeza que deseja excluir o usuário <strong className="text-slate-800">{deletingUser.nome}</strong> ({deletingUser.email})?
+                </p>
+                <p className="mt-2 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5">
+                  Esta ação removerá o acesso do usuário permanentemente do sistema e do armazenamento local.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deleteSubmitting}
+                onClick={() => setDeletingUser(null)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={deleteSubmitting}
+                onClick={handleConfirmDelete}
+                className="rounded-lg bg-rose-600 px-5 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50 shadow-xs"
+              >
+                {deleteSubmitting ? 'Excluindo...' : 'Confirmar Exclusão'}
+              </button>
+            </div>
           </div>
         </div>
       )}

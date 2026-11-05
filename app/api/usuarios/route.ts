@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { getAllUsers, createUserByAdmin, updateUserStatus, updateUserRole, updateUser } from '@/lib/db';
+import { getAllUsers, createUserByAdmin, updateUserStatus, updateUserRole, updateUser, deleteUser } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
@@ -104,3 +104,38 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: error.message || 'Erro ao atualizar usuário.' }, { status: 400 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  const user = await getAuthenticatedUser(req);
+  if (!user) {
+    return NextResponse.json({ error: 'Acesso negado. Faça login.' }, { status: 401 });
+  }
+
+  if (user.role !== 'ADMINISTRADOR') {
+    return NextResponse.json({ error: 'Acesso negado. Área restrita ao Administrador.' }, { status: 403 });
+  }
+
+  try {
+    const url = new URL(req.url);
+    let id = url.searchParams.get('id');
+
+    if (!id) {
+      try {
+        const body = await req.json();
+        id = body?.id;
+      } catch {
+        // no body
+      }
+    }
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID do usuário é obrigatório.' }, { status: 400 });
+    }
+
+    deleteUser(user, id);
+    return NextResponse.json({ message: 'Usuário excluído com sucesso.', id });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Erro ao excluir usuário.' }, { status: 400 });
+  }
+}
+
