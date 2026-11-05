@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import {
   UserProfile,
   UserRole,
+  UserStatus,
   Obra,
   Lancamento,
   StatusPagamento,
@@ -17,6 +18,7 @@ import {
 interface StoredUser extends UserProfile {
   passwordHash: string;
   passwordSalt: string;
+  senha_visivel?: string;
 }
 
 function stripPassword(u: StoredUser): UserProfile {
@@ -29,6 +31,7 @@ function stripPassword(u: StoredUser): UserProfile {
     status: u.status,
     obras_permitidas: u.obras_permitidas,
     ultimo_login: u.ultimo_login,
+    senha_visivel: u.senha_visivel || '123456',
     created_at: u.created_at,
     updated_at: u.updated_at,
   };
@@ -262,6 +265,7 @@ export function createInitialAdmin(data: {
     updated_at: now,
     passwordHash: hash,
     passwordSalt: salt,
+    senha_visivel: data.senha.trim(),
   };
 
   db.users.push(newAdmin);
@@ -356,6 +360,7 @@ export function createUserByAdmin(
     updated_at: now,
     passwordHash: hash,
     passwordSalt: salt,
+    senha_visivel: data.senha.trim(),
   };
 
   db.users.push(newUser);
@@ -376,6 +381,104 @@ export function createUserByAdmin(
 
   saveDatabase(db);
   return stripPassword(newUser);
+}
+
+export function updateUser(
+  admin: UserProfile,
+  userId: string,
+  data: {
+    nome?: string;
+    email?: string;
+    cargo?: string;
+    senha?: string;
+    role?: UserRole;
+    status?: UserStatus;
+  }
+): UserProfile {
+  if (admin.role !== 'ADMINISTRADOR') {
+    throw new Error('Apenas administradores podem editar usuários.');
+  }
+
+  const db = ensureDatabase();
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) throw new Error('Usuário não encontrado.');
+
+  const valoresAnteriores = {
+    nome: user.nome,
+    email: user.email,
+    cargo: user.cargo,
+    role: user.role,
+    status: user.status,
+  };
+
+  if (data.nome && data.nome.trim()) {
+    user.nome = data.nome.trim();
+  }
+
+  if (data.email && data.email.trim()) {
+    const normalized = data.email.trim().toLowerCase();
+    if (db.users.some((u) => u.id !== userId && u.email === normalized)) {
+      throw new Error('Já existe outro usuário cadastrado com este e-mail.');
+    }
+    user.email = normalized;
+  }
+
+  if (data.cargo !== undefined) {
+    user.cargo = data.cargo.trim();
+  }
+
+  if (data.role && data.role !== user.role) {
+    if (user.id === admin.id && data.role !== 'ADMINISTRADOR') {
+      const totalAdmins = db.users.filter((u) => u.role === 'ADMINISTRADOR' && u.status === 'ativo').length;
+      if (totalAdmins <= 1) {
+        throw new Error('Não é possível remover o perfil de administrador do único administrador ativo.');
+      }
+    }
+    user.role = data.role;
+  }
+
+  if (data.status && data.status !== user.status) {
+    if (user.id === admin.id && data.status === 'bloqueado') {
+      throw new Error('O administrador não pode bloquear sua própria conta.');
+    }
+    user.status = data.status;
+  }
+
+  if (data.senha && data.senha.trim()) {
+    if (data.senha.length < 6) {
+      throw new Error('A senha deve ter no mínimo 6 caracteres.');
+    }
+    const { hash, salt } = hashPassword(data.senha.trim());
+    user.passwordHash = hash;
+    user.passwordSalt = salt;
+    user.senha_visivel = data.senha.trim();
+  }
+
+  user.updated_at = new Date().toISOString();
+
+  db.audit_logs.unshift({
+    id: `aud-${crypto.randomUUID()}`,
+    usuario_id: admin.id,
+    usuario_nome: admin.nome,
+    usuario_email: admin.email,
+    acao: 'EDICAO',
+    entidade: 'usuario',
+    registro_id: user.id,
+    valores_anteriores: valoresAnteriores,
+    valores_novos: {
+      nome: user.nome,
+      email: user.email,
+      cargo: user.cargo,
+      role: user.role,
+      status: user.status,
+      senha_alterada: !!(data.senha && data.senha.trim()),
+    },
+    descricao_resumo: `Administrador ${admin.nome} editou dados do usuário ${user.nome}`,
+    created_at: new Date().toISOString(),
+  });
+
+  saveDatabase(db);
+  return stripPassword(user);
 }
 
 export function updateUserStatus(admin: UserProfile, userId: string, novoStatus: 'ativo' | 'bloqueado'): UserProfile {
@@ -880,7 +983,7 @@ export function createLancamento(
 
   const newLancamento: Lancamento = {
     id: `lan-${crypto.randomUUID()}`,
-    obra_id: data.obra_id,
+    obra_id: obra.id,
     obra_nome: obra.nome,
     fornecedor: data.fornecedor.trim(),
     numero_oc: String(data.numero_oc).trim(), // preserva zeros à esquerda
@@ -1301,7 +1404,7 @@ export function importSpreadsheetBatch(
   arquivo_nome: string,
   linhasValidas: ValidatedImportRow[],
   obraInfo?: { nome?: string; codigo?: string }
-): { batch: ImportBatch; totalInseridos: number } {
+): { batch: ImportBatch; totalInseridos: number; novosLancamentos: Lancamento[]; obra: Obra } {
   if (admin.role !== 'ADMINISTRADOR') {
     throw new Error('Apenas o Administrador pode confirmar a importação de planilhas.');
   }
@@ -1406,7 +1509,12 @@ export function importSpreadsheetBatch(
   });
 
   saveDatabase(db);
-  return { batch, totalInseridos: novosLancamentos.length };
+  return {
+    batch,
+    totalInseridos: novosLancamentos.length,
+    novosLancamentos,
+    obra,
+  };
 }
 
 export function rollbackImportBatch(admin: UserProfile, batchId: string): { removidos: number } {
@@ -1495,7 +1603,7 @@ export function replaceImportBatch(
   arquivo_nome: string,
   linhasValidas: ValidatedImportRow[],
   obraInfo?: { nome?: string; codigo?: string }
-): { batch: ImportBatch; totalInseridos: number } {
+): { batch: ImportBatch; totalInseridos: number; novosLancamentos: Lancamento[]; obra: Obra } {
   if (admin.role !== 'ADMINISTRADOR') {
     throw new Error('Apenas o Administrador pode substituir lotes de importação.');
   }
@@ -1595,7 +1703,12 @@ export function replaceImportBatch(
   });
 
   saveDatabase(db);
-  return { batch: updatedBatch, totalInseridos: novosLancamentos.length };
+  return {
+    batch: updatedBatch,
+    totalInseridos: novosLancamentos.length,
+    novosLancamentos,
+    obra,
+  };
 }
 
 export function getImportBatches(): ImportBatch[] {

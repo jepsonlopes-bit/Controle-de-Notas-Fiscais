@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
 
       // Se for substituição de uma planilha anterior
       if (batch_id_substituir) {
-        const { batch, totalInseridos } = replaceImportBatch(
+        const { batch, totalInseridos, novosLancamentos, obra } = replaceImportBatch(
           user,
           batch_id_substituir,
           targetObraId,
@@ -279,11 +279,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           message: `Planilha substituída com sucesso! ${totalInseridos} registros atualizados na obra "${batch.obra_nome}".`,
           batch,
+          totalInseridos,
+          novosLancamentos,
+          obra,
         });
       }
 
       // Importação nova regular
-      const { batch, totalInseridos } = importSpreadsheetBatch(
+      const { batch, totalInseridos, novosLancamentos, obra } = importSpreadsheetBatch(
         user,
         targetObraId,
         arquivo_nome || 'planilha_importada.xlsx',
@@ -294,6 +297,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         message: `${totalInseridos} registros importados com sucesso na obra "${batch.obra_nome}". Todos os dados e parcelas foram gravados.`,
         batch,
+        totalInseridos,
+        novosLancamentos,
+        obra,
       });
     }
 

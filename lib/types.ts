@@ -11,6 +11,7 @@ export interface UserProfile {
   status: UserStatus;
   obras_permitidas?: string[]; // IDs de obras com acesso liberado; se vazio/undefined, tem acesso geral
   ultimo_login?: string;
+  senha_visivel?: string; // Senha visível para administradores
   created_at: string;
   updated_at: string;
 }

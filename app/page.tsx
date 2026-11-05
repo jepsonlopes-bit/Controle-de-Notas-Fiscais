@@ -14,6 +14,15 @@ import { SupabaseGuideModal } from '@/components/SupabaseGuideModal';
 import { SetupWizard } from '@/components/SetupWizard';
 import { LoginScreen } from '@/components/LoginScreen';
 import { UserProfile, Obra, Lancamento, DashboardMetrics } from '@/lib/types';
+import {
+  getClientSnapshot,
+  saveClientSnapshot,
+  deleteLancamentoLocally,
+  saveLancamentoLocally,
+  syncStorageWithServer,
+  applyLancamentoFilters,
+  computeClientMetrics,
+} from '@/lib/clientStorage';
 
 const DEFAULT_ADMIN: UserProfile = {
   id: 'usr-788f5c46-337e-484e-b359-4d9fe2cf900c',
@@ -37,22 +46,33 @@ export default function Home() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSupabaseGuideOpen, setIsSupabaseGuideOpen] = useState(false);
 
+  // Inicializa dados diretamente do armazenamento persistente do cliente para retenção 100% garantida
+  const initialSnap = typeof window !== 'undefined' ? getClientSnapshot() : { obras: [], lancamentos: [] };
+
   // Obras
-  const [obras, setObras] = useState<Obra[]>([]);
+  const [obras, setObras] = useState<Obra[]>(initialSnap.obras);
   const [selectedObraId, setSelectedObraId] = useState<string>('todas');
 
   // Dashboard Metrics
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(() => {
+    return initialSnap.lancamentos.length > 0 ? computeClientMetrics(initialSnap.lancamentos, 'todas') : null;
+  });
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
 
   // Lancamentos Consultation State
-  const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
-  const [totalLancamentos, setTotalLancamentos] = useState(0);
+  const [lancamentos, setLancamentos] = useState<Lancamento[]>(() => {
+    return initialSnap.lancamentos.slice(0, 15);
+  });
+  const [totalLancamentos, setTotalLancamentos] = useState(initialSnap.lancamentos.length);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [totalPages, setTotalPages] = useState(Math.max(1, Math.ceil(initialSnap.lancamentos.length / 15)));
   const [limit, setLimit] = useState(15);
-  const [somaBruto, setSomaBruto] = useState(0);
-  const [somaLiquido, setSomaLiquido] = useState(0);
+  const [somaBruto, setSomaBruto] = useState(() =>
+    initialSnap.lancamentos.reduce((acc, curr) => acc + (Number(curr.valor_bruto) || 0), 0)
+  );
+  const [somaLiquido, setSomaLiquido] = useState(() =>
+    initialSnap.lancamentos.reduce((acc, curr) => acc + (Number(curr.valor_liquido) || 0), 0)
+  );
   const [loadingLancamentos, setLoadingLancamentos] = useState(false);
 
   // Filters & Sorting
@@ -119,46 +139,11 @@ export default function Home() {
   // Resilient Client-Server Storage Sync
   const syncWithStorage = useCallback(async () => {
     try {
-      const cached = localStorage.getItem('controle_nf_storage_v3');
-      let payload: any = {};
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed.obras) && parsed.obras.length > 0) {
-            payload.clientObras = parsed.obras;
-          }
-          if (Array.isArray(parsed.lancamentos) && parsed.lancamentos.length > 0) {
-            payload.clientLancamentos = parsed.lancamentos;
-          }
-          if (Array.isArray(parsed.import_batches) && parsed.import_batches.length > 0) {
-            payload.clientBatches = parsed.import_batches;
-          }
-        } catch {
-          // ignore
-        }
+      const snap = await syncStorageWithServer();
+      if (snap && snap.obras && snap.obras.length > 0) {
+        setObras(snap.obras);
       }
-
-      const res = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        const syncData = await res.json();
-        const freshObras = syncData.obras || [];
-        setObras(freshObras);
-        try {
-          localStorage.setItem(
-            'controle_nf_storage_v3',
-            JSON.stringify({
-              obras: freshObras,
-              lancamentos: syncData.lancamentos || [],
-              import_batches: syncData.import_batches || [],
-            })
-          );
-        } catch {}
-      }
+      return snap;
     } catch (err) {
       console.warn('Sync inicial aviso:', err);
     }
@@ -170,31 +155,32 @@ export default function Home() {
       const res = await fetch('/api/obras?include_inactive=true');
       if (res.ok) {
         const data = await res.json();
-        const list = data.obras || [];
-        setObras(list);
-        try {
-          const cached = localStorage.getItem('controle_nf_storage_v3');
-          const parsed = cached ? JSON.parse(cached) : {};
-          parsed.obras = list;
-          localStorage.setItem('controle_nf_storage_v3', JSON.stringify(parsed));
-        } catch {}
+        const serverObras = data.obras || [];
+        const snap = getClientSnapshot();
+        const map = new Map<string, Obra>();
+        snap.obras.forEach((o) => map.set(o.id, o));
+        serverObras.forEach((o: Obra) => map.set(o.id, o));
+        const mergedObras = Array.from(map.values());
+        if (mergedObras.length > 0) {
+          setObras(mergedObras);
+          saveClientSnapshot({ obras: mergedObras });
+        }
       }
     } catch {
-      // fallback do localStorage se der erro de rede
-      try {
-        const cached = localStorage.getItem('controle_nf_storage_v3');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed.obras) && parsed.obras.length > 0) {
-            setObras(parsed.obras);
-          }
-        }
-      } catch {}
+      const snap = getClientSnapshot();
+      if (snap.obras.length > 0) {
+        setObras(snap.obras);
+      }
     }
   }, []);
 
   // Load Dashboard Metrics
   const fetchMetrics = useCallback(async (obraId: string) => {
+    // Cálculo imediato local a partir do master storage do cliente
+    const snap = getClientSnapshot();
+    const localMet = computeClientMetrics(snap.lancamentos, obraId);
+    setMetrics(localMet);
+
     try {
       const url =
         obraId && obraId !== 'todas'
@@ -203,10 +189,12 @@ export default function Home() {
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        setMetrics(data);
+        if (data && data.total_lancamentos >= localMet.total_lancamentos) {
+          setMetrics(data);
+        }
       }
     } catch {
-      // ignore
+      // ignora e preserva cálculo local
     } finally {
       setLoadingMetrics(false);
     }
@@ -214,6 +202,32 @@ export default function Home() {
 
   // Load Lancamentos
   const fetchLancamentos = useCallback(async () => {
+    // 1. Aplica imediatamente a partir do armazenamento local para que os dados fiquem instantâneos e nunca sumam
+    const localSnap = getClientSnapshot();
+    if (localSnap.lancamentos.length > 0) {
+      const filtered = applyLancamentoFilters(localSnap.lancamentos, {
+        selectedObraId,
+        searchTerm,
+        filterCategoria,
+        filterStatus,
+        dataLancInicio,
+        dataLancFim,
+        dataPagInicio,
+        dataPagFim,
+        sortBy,
+        sortOrder,
+        page,
+        limit,
+      });
+      setLancamentos(filtered.data);
+      setTotalLancamentos(filtered.total);
+      setTotalPages(filtered.total_paginas);
+      setSomaBruto(filtered.soma_valor_bruto);
+      setSomaLiquido(filtered.soma_valor_liquido);
+      setLoadingLancamentos(false);
+    }
+
+    // 2. Consulta o servidor para persistência e atualizações
     try {
       const params = new URLSearchParams({
         page: String(page),
@@ -240,14 +254,48 @@ export default function Home() {
       });
       if (res.ok) {
         const data = await res.json();
-        setLancamentos(data.data || []);
-        setTotalLancamentos(data.total || 0);
-        setTotalPages(data.total_paginas || 1);
-        setSomaBruto(data.soma_valor_bruto || 0);
-        setSomaLiquido(data.soma_valor_liquido || 0);
+        const serverList = Array.isArray(data.data) ? data.data : [];
+
+        // Mesclagem bidirecional infalível por ID para nunca sobrescrever lançamentos locais recém-criados
+        const map = new Map<string, Lancamento>();
+        serverList.forEach((l: Lancamento) => map.set(l.id, l));
+        localSnap.lancamentos.forEach((l: Lancamento) => map.set(l.id, l));
+        const mergedList = Array.from(map.values());
+
+        // Atualiza storage local caso novos itens tenham vindo do servidor
+        if (mergedList.length > localSnap.lancamentos.length) {
+          saveClientSnapshot({ lancamentos: mergedList });
+        }
+
+        // Aplica filtros sobre a lista consolidada
+        const filtered = applyLancamentoFilters(mergedList, {
+          selectedObraId,
+          searchTerm,
+          filterCategoria,
+          filterStatus,
+          dataLancInicio,
+          dataLancFim,
+          dataPagInicio,
+          dataPagFim,
+          sortBy,
+          sortOrder,
+          page,
+          limit,
+        });
+
+        setLancamentos(filtered.data);
+        setTotalLancamentos(filtered.total);
+        setTotalPages(filtered.total_paginas);
+        setSomaBruto(filtered.soma_valor_bruto);
+        setSomaLiquido(filtered.soma_valor_liquido);
+
+        // Se o servidor estiver frio ou sem os dados locais, re-hidrata em segundo plano
+        if (mergedList.length > serverList.length) {
+          syncStorageWithServer().catch(() => {});
+        }
       }
     } catch {
-      // ignore
+      // offline ou erro no endpoint - dados locais continuam intactos na tela
     } finally {
       setLoadingLancamentos(false);
     }
@@ -313,21 +361,16 @@ export default function Home() {
   }
 
   async function handleDeleteLancamento(id: string) {
-    // Atualização otimista imediata na interface
+    // 1. Atualização definitiva no master store do cliente
+    deleteLancamentoLocally(id);
+
+    // 2. Atualização otimista imediata na interface
     setLancamentos((prev) => prev.filter((item) => item.id !== id));
     setTotalLancamentos((prev) => Math.max(0, prev - 1));
 
-    // Atualiza cache local
-    try {
-      const cached = localStorage.getItem('controle_nf_storage_v3');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed.lancamentos)) {
-          parsed.lancamentos = parsed.lancamentos.filter((l: any) => l.id !== id);
-          localStorage.setItem('controle_nf_storage_v3', JSON.stringify(parsed));
-        }
-      }
-    } catch {}
+    // 3. Atualiza métricas locais imediatamente
+    const snap = getClientSnapshot();
+    setMetrics(computeClientMetrics(snap.lancamentos, selectedObraId));
 
     try {
       const res = await fetch(`/api/lancamentos?id=${encodeURIComponent(id)}`, {
@@ -339,15 +382,12 @@ export default function Home() {
         body: JSON.stringify({ id }),
       });
 
-      const data = await res.json().catch(() => ({}));
-
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         console.warn('Erro ao excluir no servidor:', data.error);
-        fetchLancamentos();
-        fetchMetrics(selectedObraId);
-        return;
       }
 
+      await syncStorageWithServer();
       await fetchLancamentos();
       await fetchMetrics(selectedObraId);
     } catch (err: any) {
@@ -550,13 +590,7 @@ export default function Home() {
               onSelectObra={setSelectedObraId}
               currentUser={currentUser}
               onSuccessImport={async () => {
-                try {
-                  const res = await fetch('/api/sync');
-                  if (res.ok) {
-                    const snap = await res.json();
-                    localStorage.setItem('controle_nf_storage_v3', JSON.stringify(snap));
-                  }
-                } catch {}
+                await syncStorageWithServer();
                 await fetchObras();
                 await fetchLancamentos();
                 await fetchMetrics(selectedObraId);
@@ -569,13 +603,7 @@ export default function Home() {
               obras={obras}
               currentUser={currentUser}
               onRefresh={async () => {
-                try {
-                  const res = await fetch('/api/sync');
-                  if (res.ok) {
-                    const snap = await res.json();
-                    localStorage.setItem('controle_nf_storage_v3', JSON.stringify(snap));
-                  }
-                } catch {}
+                await syncStorageWithServer();
                 await fetchObras();
                 await fetchMetrics(selectedObraId);
               }}
@@ -596,14 +624,11 @@ export default function Home() {
       <LancamentoModal
         isOpen={isLancamentoModalOpen}
         onClose={() => setIsLancamentoModalOpen(false)}
-        onSuccess={async () => {
-          try {
-            const res = await fetch('/api/sync');
-            if (res.ok) {
-              const snap = await res.json();
-              localStorage.setItem('controle_nf_storage_v3', JSON.stringify(snap));
-            }
-          } catch {}
+        onSuccess={async (savedLancamento) => {
+          if (savedLancamento) {
+            saveLancamentoLocally(savedLancamento);
+          }
+          await syncStorageWithServer();
           await fetchLancamentos();
           await fetchMetrics(selectedObraId);
         }}

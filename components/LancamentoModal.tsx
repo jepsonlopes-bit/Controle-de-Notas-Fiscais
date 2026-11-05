@@ -3,12 +3,18 @@
 import React, { useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 import { Lancamento, Obra, UserProfile } from '@/lib/types';
-import { formatarDataHoraBR } from '@/lib/formatters';
+import {
+  formatarDataHoraBR,
+  formatarValorInputBRL,
+  aplicarMascaraMoedaInput,
+  converterMoedaParaNumero,
+} from '@/lib/formatters';
+import { saveLancamentoLocally } from '@/lib/clientStorage';
 
 interface LancamentoModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (lancamento?: Lancamento) => void;
   lancamento?: Lancamento | null;
   obras: Obra[];
   defaultObraId?: string;
@@ -40,12 +46,16 @@ function LancamentoModalContent({
   const [numeroOc, setNumeroOc] = useState(lancamento?.numero_oc || '');
   const [numeroMedicao, setNumeroMedicao] = useState(lancamento?.numero_medicao || '');
   const [numeroNf, setNumeroNf] = useState(lancamento?.numero_nf || '');
-  const [valorBruto, setValorBruto] = useState<string>(
-    lancamento ? String(lancamento.valor_bruto) : ''
-  );
-  const [valorLiquido, setValorLiquido] = useState<string>(
-    lancamento ? String(lancamento.valor_liquido) : ''
-  );
+  const [valorBruto, setValorBruto] = useState<string>(() => {
+    return lancamento && lancamento.valor_bruto !== undefined
+      ? formatarValorInputBRL(lancamento.valor_bruto)
+      : '';
+  });
+  const [valorLiquido, setValorLiquido] = useState<string>(() => {
+    return lancamento && lancamento.valor_liquido !== undefined
+      ? formatarValorInputBRL(lancamento.valor_liquido)
+      : '';
+  });
   const [dataLancamento, setDataLancamento] = useState(
     lancamento?.data_lancamento || new Date().toISOString().split('T')[0]
   );
@@ -74,20 +84,39 @@ function LancamentoModalContent({
   const [loading, setLoading] = useState(false);
   const [avisoDuplicidade, setAvisoDuplicidade] = useState<string | null>(null);
 
+  // Cálculo dinâmico de retenção em tempo real
+  const numBrutoCalc = converterMoedaParaNumero(valorBruto);
+  const numLiquidoCalc = converterMoedaParaNumero(valorLiquido);
+  const retencoesCalculadas = Math.max(0, numBrutoCalc - numLiquidoCalc);
+
   async function handleSubmit(e: React.FormEvent, forceDuplicate = false) {
     e.preventDefault();
     setErrorMsg('');
     setLoading(true);
 
     try {
+      const numBruto = converterMoedaParaNumero(valorBruto);
+      const numLiquido = converterMoedaParaNumero(valorLiquido);
+
+      if (isNaN(numBruto) || numBruto <= 0) {
+        throw new Error('Informe um valor bruto válido maior que zero.');
+      }
+      if (isNaN(numLiquido) || numLiquido < 0) {
+        throw new Error('Informe um valor líquido válido.');
+      }
+
+      // Garante uma obra vinculada válida
+      const targetObra = obras.find((o) => o.id === obraId) || obras[0];
+      const finalObraId = targetObra ? targetObra.id : obraId;
+
       const payload = {
-        obra_id: obraId,
+        obra_id: finalObraId,
         fornecedor,
         numero_oc: numeroOc,
         numero_medicao: numeroMedicao,
         numero_nf: numeroNf,
-        valor_bruto: parseFloat(valorBruto),
-        valor_liquido: parseFloat(valorLiquido),
+        valor_bruto: numBruto,
+        valor_liquido: numLiquido,
         data_lancamento: dataLancamento,
         data_pagamento: dataPagamento || undefined,
         status_pagamento: statusPagamento,
@@ -119,7 +148,11 @@ function LancamentoModalContent({
         throw new Error(data.error || 'Erro ao salvar lançamento.');
       }
 
-      onSuccess();
+      if (data.lancamento) {
+        saveLancamentoLocally(data.lancamento);
+      }
+
+      onSuccess(data.lancamento);
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro ao processar formulário.');
@@ -307,37 +340,52 @@ function LancamentoModalContent({
             {/* Valor Bruto */}
             <div>
               <label className="block text-xs font-semibold text-slate-700">
-                Valor Bruto (R$) <span className="text-rose-500">*</span>
+                Valor Bruto <span className="text-rose-500">*</span>
               </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                disabled={isReadOnly}
-                required
-                placeholder="0.00"
-                value={valorBruto}
-                onChange={(e) => setValorBruto(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 sm:text-sm"
-              />
+              <div className="relative mt-1">
+                <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-slate-400">
+                  R$
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  disabled={isReadOnly}
+                  required
+                  placeholder="0,00"
+                  value={valorBruto}
+                  onChange={(e) => setValorBruto(aplicarMascaraMoedaInput(e.target.value))}
+                  className="block w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-xs font-mono font-semibold text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 sm:text-sm"
+                />
+              </div>
             </div>
 
             {/* Valor Líquido */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700">
-                Valor Líquido (R$) <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                disabled={isReadOnly}
-                required
-                placeholder="0.00"
-                value={valorLiquido}
-                onChange={(e) => setValorLiquido(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 sm:text-sm"
-              />
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Valor Líquido <span className="text-rose-500">*</span>
+                </label>
+                {retencoesCalculadas > 0 && (
+                  <span className="text-[11px] font-semibold text-emerald-700">
+                    Retenção: R$ {formatarValorInputBRL(retencoesCalculadas)}
+                  </span>
+                )}
+              </div>
+              <div className="relative mt-1">
+                <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-slate-400">
+                  R$
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  disabled={isReadOnly}
+                  required
+                  placeholder="0,00"
+                  value={valorLiquido}
+                  onChange={(e) => setValorLiquido(aplicarMascaraMoedaInput(e.target.value))}
+                  className="block w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-xs font-mono font-semibold text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 sm:text-sm"
+                />
+              </div>
             </div>
 
             {/* Data de Lançamento */}

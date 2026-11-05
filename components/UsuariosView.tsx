@@ -1,8 +1,22 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Users, UserPlus, Shield, UserCheck, UserX, Lock, Key, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { UserProfile, Obra, UserRole } from '@/lib/types';
+import {
+  Users,
+  UserPlus,
+  Shield,
+  UserCheck,
+  UserX,
+  Lock,
+  Key,
+  CheckCircle2,
+  AlertTriangle,
+  Eye,
+  EyeOff,
+  Pencil,
+  X,
+} from 'lucide-react';
+import { UserProfile, Obra, UserRole, UserStatus } from '@/lib/types';
 import { formatarDataHoraBR } from '@/lib/formatters';
 
 interface UsuariosViewProps {
@@ -16,13 +30,30 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Controle de visualização da senha na tabela (por ID)
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+
+  // Modal de Criação de Usuário
   const [modalOpen, setModalOpen] = useState(false);
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [cargo, setCargo] = useState('');
   const [role, setRole] = useState<UserRole>('USUARIO');
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Modal de Edição de Usuário
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editNome, setEditNome] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editCargo, setEditCargo] = useState('');
+  const [editSenha, setEditSenha] = useState('');
+  const [editRole, setEditRole] = useState<UserRole>('USUARIO');
+  const [editStatus, setEditStatus] = useState<UserStatus>('ativo');
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   useEffect(() => {
     fetchUsuarios();
@@ -40,6 +71,13 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function togglePasswordVisibility(id: string) {
+    setVisiblePasswords((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
   }
 
   async function handleCreateUser(e: React.FormEvent) {
@@ -64,17 +102,68 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao criar usuário.');
 
-      setSuccessMsg(data.message);
+      setSuccessMsg(data.message || 'Usuário cadastrado com sucesso.');
       setModalOpen(false);
       setNome('');
       setEmail('');
       setSenha('');
       setCargo('');
+      setShowCreatePassword(false);
       fetchUsuarios();
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro ao cadastrar usuário.');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function handleOpenEdit(user: UserProfile) {
+    setEditingUserId(user.id);
+    setEditNome(user.nome);
+    setEditEmail(user.email);
+    setEditCargo(user.cargo || '');
+    setEditSenha(user.senha_visivel || '123456');
+    setEditRole(user.role);
+    setEditStatus(user.status);
+    setShowEditPassword(false);
+    setErrorMsg('');
+    setEditModalOpen(true);
+  }
+
+  async function handleSaveEditUser(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingUserId) return;
+
+    setErrorMsg('');
+    setSuccessMsg('');
+    setEditSubmitting(true);
+
+    try {
+      const res = await fetch('/api/usuarios', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingUserId,
+          acao: 'editar_usuario',
+          nome: editNome,
+          email: editEmail,
+          cargo: editCargo,
+          senha: editSenha,
+          role: editRole,
+          status: editStatus,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao atualizar dados do usuário.');
+
+      setSuccessMsg(data.message || 'Usuário atualizado com sucesso.');
+      setEditModalOpen(false);
+      fetchUsuarios();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Erro ao atualizar usuário.');
+    } finally {
+      setEditSubmitting(false);
     }
   }
 
@@ -137,12 +226,11 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-slate-900">
-              Gerenciamento de Usuários e Permissões
+              Gerenciamento de Usuários, Senhas e Permissões
             </h2>
             <p className="mt-1 text-xs text-slate-500 leading-relaxed max-w-2xl">
-              Cadastre usuários autorizados e defina privilégios. Usuários padrão possuem acesso
-              restrito a consulta e cadastramento, enquanto administradores podem realizar correções,
-              exclusões e gerenciar a plataforma.
+              Consulte e edite credenciais, altere senhas com visualização em tempo real e defina perfis de acesso.
+              Usuários padrão realizam consultas e lançamentos, enquanto administradores possuem controle completo.
             </p>
           </div>
 
@@ -181,22 +269,26 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
               <tr>
                 <th className="py-3.5 pl-4 pr-3">Nome / Cargo</th>
                 <th className="py-3.5 px-3">E-mail</th>
+                <th className="py-3.5 px-3">Senha de Acesso</th>
                 <th className="py-3.5 px-3">Perfil de Acesso</th>
                 <th className="py-3.5 px-3">Status</th>
                 <th className="py-3.5 px-3">Último Login</th>
-                <th className="py-3.5 pr-4 pl-3 text-center">Ações Administrativas</th>
+                <th className="py-3.5 pr-4 pl-3 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
                     Carregando usuários...
                   </td>
                 </tr>
               ) : (
                 usuarios.map((u) => {
                   const isCurrent = u.id === currentUser.id;
+                  const isVisible = !!visiblePasswords[u.id];
+                  const passwordValue = u.senha_visivel || '123456';
+
                   return (
                     <tr key={u.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3.5 pl-4 pr-3 font-medium text-slate-900">
@@ -204,6 +296,25 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                         <div className="text-[11px] text-slate-400">{u.cargo || 'Não especificado'}</div>
                       </td>
                       <td className="py-3.5 px-3 text-slate-600 font-mono">{u.email}</td>
+                      <td className="py-3.5 px-3 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1">
+                          <span className="font-mono text-xs font-semibold text-slate-800">
+                            {isVisible ? passwordValue : '••••••••'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => togglePasswordVisibility(u.id)}
+                            className="text-slate-400 hover:text-slate-700 transition-colors"
+                            title={isVisible ? 'Ocultar senha' : 'Ver senha'}
+                          >
+                            {isVisible ? (
+                              <EyeOff className="h-3.5 w-3.5 text-slate-600" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
                       <td className="py-3.5 px-3 whitespace-nowrap">
                         <span
                           className={`text-xs font-semibold ${
@@ -226,7 +337,17 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                         {formatarDataHoraBR(u.ultimo_login)}
                       </td>
                       <td className="py-3.5 pr-4 pl-3 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Botão de Edição Completa */}
+                          <button
+                            onClick={() => handleOpenEdit(u)}
+                            className="flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 hover:text-emerald-700"
+                            title="Editar dados e senha do usuário"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            <span>Editar</span>
+                          </button>
+
                           {/* Toggle role */}
                           <button
                             disabled={isCurrent}
@@ -234,7 +355,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                             className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40"
                             title="Alternar entre Administrador e Usuário"
                           >
-                            Tornar {u.role === 'ADMINISTRADOR' ? 'Usuário' : 'Admin'}
+                            {u.role === 'ADMINISTRADOR' ? 'Tornar Usuário' : 'Tornar Admin'}
                           </button>
 
                           {/* Toggle active / blocked */}
@@ -260,16 +381,27 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
         </div>
       </div>
 
-      {/* Create User Modal */}
+      {/* Modal: Cadastrar Novo Usuário */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h3 className="text-base font-semibold text-slate-900">
-              Cadastrar Novo Usuário
-            </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Preencha os dados e credenciais do novo operador do sistema.
-            </p>
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">
+                  Cadastrar Novo Usuário
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Defina os dados cadastrais e senha de acesso do operador.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
 
             <form onSubmit={handleCreateUser} className="mt-4 space-y-4">
               <div>
@@ -317,15 +449,29 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                 <label className="block text-xs font-semibold text-slate-700">
                   Senha Inicial <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  placeholder="Mínimo 6 caracteres"
-                  value={senha}
-                  onChange={(e) => setSenha(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
-                />
+                <div className="relative mt-1">
+                  <input
+                    type={showCreatePassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    placeholder="Mínimo 6 caracteres"
+                    value={senha}
+                    onChange={(e) => setSenha(e.target.value)}
+                    className="block w-full rounded-lg border border-slate-300 pr-10 pl-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCreatePassword(!showCreatePassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
+                    title={showCreatePassword ? 'Ocultar senha' : 'Ver senha'}
+                  >
+                    {showCreatePassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -341,7 +487,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                   <option value="ADMINISTRADOR">Administrador (Total Acesso e Auditoria)</option>
                 </select>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  Usuários padrão não podem alterar ou apagar lançamentos nem gerenciar outros usuários.
+                  Usuários padrão não podem alterar ou apagar lançamentos nem gerenciar outros operadores.
                 </p>
               </div>
 
@@ -359,6 +505,150 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                   className="rounded-lg bg-emerald-600 px-5 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 shadow-xs"
                 >
                   {submitting ? 'Salvando...' : 'Salvar Usuário'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Editar Usuário e Senha */}
+      {editModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">
+                  Editar Usuário e Senha
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Altere nome, cargo, senha e permissões de acesso do operador.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditModalOpen(false)}
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditUser} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Nome Completo <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editNome}
+                  onChange={(e) => setEditNome(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">
+                  E-mail de Acesso <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Cargo / Setor
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Engenheiro de Obra"
+                  value={editCargo}
+                  onChange={(e) => setEditCargo(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Senha de Acesso <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400">Visível para o Administrador</span>
+                </div>
+                <div className="relative mt-1">
+                  <input
+                    type={showEditPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={editSenha}
+                    onChange={(e) => setEditSenha(e.target.value)}
+                    className="block w-full rounded-lg border border-slate-300 pr-10 pl-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
+                    title={showEditPassword ? 'Ocultar senha' : 'Ver senha'}
+                  >
+                    {showEditPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Perfil de Permissão
+                  </label>
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value as UserRole)}
+                    className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-900 focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="USUARIO">Usuário Padrão</option>
+                    <option value="ADMINISTRADOR">Administrador</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Status da Conta
+                  </label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as UserStatus)}
+                    className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-900 focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ativo">Ativo</option>
+                    <option value="bloqueado">Bloqueado</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditModalOpen(false)}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSubmitting}
+                  className="rounded-lg bg-emerald-600 px-5 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 shadow-xs"
+                >
+                  {editSubmitting ? 'Salvando...' : 'Salvar Alterações'}
                 </button>
               </div>
             </form>

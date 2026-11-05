@@ -19,6 +19,7 @@ import {
 import * as XLSX from 'xlsx';
 import { Obra, UserProfile, ImportBatch } from '@/lib/types';
 import { formatarMoeda, formatarDataBR, formatarDataHoraBR } from '@/lib/formatters';
+import { getClientSnapshot, saveClientSnapshot } from '@/lib/clientStorage';
 
 interface ImportarPlanilhaViewProps {
   obras: Obra[];
@@ -261,6 +262,29 @@ export function ImportarPlanilhaView({
         throw new Error(data.error || 'Falha ao confirmar importação.');
       }
 
+      // Salva imediatamente todos os novos registros no armazenamento permanente local
+      if (Array.isArray(data.novosLancamentos)) {
+        const currentSnap = getClientSnapshot();
+        const existingLanc = substitutingBatch
+          ? currentSnap.lancamentos.filter((l) => l.lote_importacao_id !== substitutingBatch.id)
+          : currentSnap.lancamentos;
+        const newLancList = [...data.novosLancamentos, ...existingLanc];
+        const newBatches = data.batch
+          ? [data.batch, ...currentSnap.import_batches.filter((b) => b.id !== data.batch.id)]
+          : currentSnap.import_batches;
+        const newObras = data.obra
+          ? currentSnap.obras.some((o) => o.id === data.obra.id)
+            ? currentSnap.obras
+            : [...currentSnap.obras, data.obra]
+          : currentSnap.obras;
+
+        saveClientSnapshot({
+          lancamentos: newLancList,
+          import_batches: newBatches,
+          obras: newObras,
+        });
+      }
+
       setSuccessMessage(data.message);
       setValidationResult(null);
       setRawRows([]);
@@ -294,6 +318,12 @@ export function ImportarPlanilhaView({
       if (!res.ok) {
         throw new Error(data.error || 'Erro ao excluir a planilha.');
       }
+
+      const currentSnap = getClientSnapshot();
+      saveClientSnapshot({
+        lancamentos: currentSnap.lancamentos.filter((l) => l.lote_importacao_id !== batchToDelete.id),
+        import_batches: currentSnap.import_batches.filter((b) => b.id !== batchToDelete.id),
+      });
 
       setSuccessMessage(data.message);
       setBatchToDelete(null);

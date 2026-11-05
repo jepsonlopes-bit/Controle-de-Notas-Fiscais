@@ -126,3 +126,36 @@ export function preservarZerosDocumento(valor: unknown): string {
   if (valor === null || valor === undefined) return '';
   return String(valor).trim();
 }
+
+/**
+ * Converte valor numérico ou string digitada para formato de moeda brasileira para exibição e edição (ex: "1.250,50")
+ */
+export function formatarValorInputBRL(valor: number | string | null | undefined): string {
+  if (valor === null || valor === undefined || valor === '') return '';
+  const num = typeof valor === 'number' ? valor : converterMoedaParaNumero(valor);
+  if (isNaN(num)) return '';
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+}
+
+/**
+ * Aplica máscara de moeda brasileira em tempo real enquanto o usuário digita.
+ * Suporta digitação progressiva:
+ * Ex: "1" -> "0,01"
+ * "12" -> "0,12"
+ * "125" -> "1,25"
+ * "125050" -> "1.250,50"
+ */
+export function aplicarMascaraMoedaInput(valorDigitado: string): string {
+  if (!valorDigitado) return '';
+  const apenasDigitos = String(valorDigitado).replace(/\D/g, '');
+  if (!apenasDigitos) return '';
+  const num = parseInt(apenasDigitos, 10) / 100;
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+}
+

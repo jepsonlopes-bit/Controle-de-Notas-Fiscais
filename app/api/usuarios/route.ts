@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { getAllUsers, createUserByAdmin, updateUserStatus, updateUserRole } from '@/lib/db';
+import { getAllUsers, createUserByAdmin, updateUserStatus, updateUserRole, updateUser } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
@@ -82,6 +82,21 @@ export async function PUT(req: NextRequest) {
     if (acao === 'alterar_role') {
       const atualizado = updateUserRole(user, id, nova_role);
       return NextResponse.json({ message: `Perfil alterado para ${nova_role}`, usuario: atualizado });
+    }
+
+    if (acao === 'editar_usuario' || !acao) {
+      const atualizado = updateUser(user, id, {
+        nome: body.nome,
+        email: body.email,
+        cargo: body.cargo,
+        senha: body.senha,
+        role: body.role || nova_role,
+        status: body.status || novo_status,
+      });
+      return NextResponse.json({
+        message: 'Dados do usuário atualizados com sucesso.',
+        usuario: atualizado,
+      });
     }
 
     return NextResponse.json({ error: 'Ação não suportada.' }, { status: 400 });

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Obra, UserProfile } from '@/lib/types';
 import { formatarDataHoraBR, formatarMoeda } from '@/lib/formatters';
+import { saveObraLocally, deleteObraLocally } from '@/lib/clientStorage';
 
 interface ObraWithStats extends Obra {
   total_lancamentos?: number;
@@ -89,6 +90,12 @@ export function ObrasView({ obras, currentUser, onRefresh }: ObrasViewProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
+      if (data.obra) {
+        saveObraLocally(data.obra);
+      } else {
+        saveObraLocally({ ...obra, status: novoStatus });
+      }
+
       setSuccessMsg(data.message || `Obra alterada para ${novoStatus === 'ativo' ? 'Ativa' : 'Inativa'}.`);
       onRefresh();
     } catch (err: any) {
@@ -122,6 +129,12 @@ export function ObrasView({ obras, currentUser, onRefresh }: ObrasViewProps) {
         throw new Error(data.error || 'Erro ao processar obra.');
       }
 
+      if (data.obra) {
+        saveObraLocally(data.obra);
+      } else if (isEdit && editingObra) {
+        saveObraLocally({ ...editingObra, nome, descricao, status });
+      }
+
       setSuccessMsg(data.message);
       setModalOpen(false);
       onRefresh();
@@ -150,6 +163,7 @@ export function ObrasView({ obras, currentUser, onRefresh }: ObrasViewProps) {
         throw new Error(data.error || 'Erro ao excluir obra.');
       }
 
+      deleteObraLocally(deletingObra.id);
       setSuccessMsg(data.message);
       setDeletingObra(null);
       onRefresh();

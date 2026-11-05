@@ -58,32 +58,50 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, ...saved });
     }
 
-    // Sincronização inteligente resiliente:
-    // Se o servidor reiniciar (cold-start serverless / Vercel) e o cliente possuir dados no localStorage, restaura o estado!
+    // Sincronização inteligente e resiliente bidirecional:
+    // Mescla dados por ID garantindo que nenhum lançamento ou obra seja perdido entre instâncias serverless
     const serverSnap = getDatabaseSnapshot();
-    const serverIsEmpty = serverSnap.obras.length === 0 && serverSnap.lancamentos.length === 0;
-    const clientHasData =
-      (Array.isArray(clientObras) && clientObras.length > 0) ||
-      (Array.isArray(clientLancamentos) && clientLancamentos.length > 0);
+    const clientObrasList = Array.isArray(clientObras) ? clientObras : [];
+    const clientLancList = Array.isArray(clientLancamentos) ? clientLancamentos : [];
+    const clientBatchList = Array.isArray(clientBatches) ? clientBatches : [];
 
-    if (serverIsEmpty && clientHasData) {
-      const restored = restoreDatabaseSnapshot(user, {
-        obras: clientObras,
-        lancamentos: clientLancamentos,
-        import_batches: clientBatches,
-      });
-      return NextResponse.json({
-        synchronized: true,
-        source: 'restored_from_client',
-        ...restored,
+    // Mesclagem de obras (pelo ID)
+    const obrasMap = new Map();
+    serverSnap.obras.forEach((o) => obrasMap.set(o.id, o));
+    clientObrasList.forEach((o) => obrasMap.set(o.id, o));
+
+    // Mesclagem de lançamentos (pelo ID)
+    const lancMap = new Map();
+    serverSnap.lancamentos.forEach((l) => lancMap.set(l.id, l));
+    clientLancList.forEach((l) => lancMap.set(l.id, l));
+
+    // Mesclagem de lotes de importação (pelo ID)
+    const batchMap = new Map();
+    serverSnap.import_batches.forEach((b) => batchMap.set(b.id, b));
+    clientBatchList.forEach((b) => batchMap.set(b.id, b));
+
+    const mergedObras = Array.from(obrasMap.values());
+    const mergedLancamentos = Array.from(lancMap.values());
+    const mergedBatches = Array.from(batchMap.values());
+
+    const hasNewData =
+      mergedObras.length > serverSnap.obras.length ||
+      mergedLancamentos.length > serverSnap.lancamentos.length ||
+      mergedBatches.length > serverSnap.import_batches.length;
+
+    if (hasNewData) {
+      restoreDatabaseSnapshot(user, {
+        obras: mergedObras,
+        lancamentos: mergedLancamentos,
+        import_batches: mergedBatches,
       });
     }
 
-    // Retorna o snapshot oficial do servidor para atualizar o cliente
     return NextResponse.json({
       synchronized: true,
-      source: 'server_state',
-      ...serverSnap,
+      obras: mergedObras,
+      lancamentos: mergedLancamentos,
+      import_batches: mergedBatches,
     });
   } catch (error: any) {
     return NextResponse.json(
