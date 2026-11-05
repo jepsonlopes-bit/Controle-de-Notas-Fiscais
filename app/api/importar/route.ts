@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { acao, obra_id, arquivo_nome, linhas_brutas, linhas_validadas, batch_id_substituir } = body;
+    const { acao, obra_id, obra_nome, obra_codigo, arquivo_nome, linhas_brutas, linhas_validadas, batch_id_substituir } = body;
 
     const targetObraId = obra_id || '';
 
@@ -273,7 +273,8 @@ export async function POST(req: NextRequest) {
           batch_id_substituir,
           targetObraId,
           arquivo_nome || 'planilha_substituida.xlsx',
-          linhas_validadas
+          linhas_validadas,
+          { nome: obra_nome, codigo: obra_codigo }
         );
         return NextResponse.json({
           message: `Planilha substituída com sucesso! ${totalInseridos} registros atualizados na obra "${batch.obra_nome}".`,
@@ -286,7 +287,8 @@ export async function POST(req: NextRequest) {
         user,
         targetObraId,
         arquivo_nome || 'planilha_importada.xlsx',
-        linhas_validadas
+        linhas_validadas,
+        { nome: obra_nome, codigo: obra_codigo }
       );
 
       return NextResponse.json({

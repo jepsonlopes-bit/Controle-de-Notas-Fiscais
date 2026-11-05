@@ -50,20 +50,33 @@ declare global {
 
 const SEED_FILE = path.join(process.cwd(), 'data', 'app_database.json');
 
+export function isServerlessEnvironment(): boolean {
+  if (
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.NOW_REGION
+  ) {
+    return true;
+  }
+  try {
+    const cwd = process.cwd();
+    if (cwd.startsWith('/var/task') || cwd.startsWith('/var/runtime')) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 /**
  * Determina o caminho de gravação do banco de dados.
  * Em ambientes como Vercel ou AWS Lambda, o diretório da aplicação (/var/task) é estritamente somente leitura (EROFS).
  * O único diretório com permissão de gravação em disco nesses ambientes é os.tmpdir() (/tmp).
  */
 function resolveWritableDbPaths(): { dir: string; file: string } {
-  const isServerless = Boolean(
-    process.env.VERCEL ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.env.LAMBDA_TASK_ROOT ||
-    process.env.NOW_REGION
-  );
-
-  if (isServerless) {
+  if (isServerlessEnvironment()) {
     const tmpDir = path.join(os.tmpdir(), 'controle_nf_data');
     return {
       dir: tmpDir,
@@ -72,8 +85,8 @@ function resolveWritableDbPaths(): { dir: string; file: string } {
   }
 
   // Tenta usar o diretório local data/ se tiver permissão de escrita
-  const localDir = path.join(process.cwd(), 'data');
   try {
+    const localDir = path.join(process.cwd(), 'data');
     if (!fs.existsSync(localDir)) {
       fs.mkdirSync(localDir, { recursive: true });
     }
@@ -185,24 +198,25 @@ function ensureDatabase(): DatabaseSchema {
 }
 
 function saveDatabase(data: DatabaseSchema): void {
-  // Atualiza cache em memória imediatamente
+  // 1. Atualiza cache em memória imediatamente (instantâneo e global no processo)
   globalThis.__appDatabaseCache = data;
 
-  // Atualiza também o arquivo de seed base (data/app_database.json) no repositório,
-  // tornando quaisquer lançamentos novos ou planilhas importadas os registros padrão do sistema.
-  try {
-    if (fs.existsSync(SEED_FILE)) {
-      const tempSeed = `${SEED_FILE}.tmp.${Date.now()}`;
-      fs.writeFileSync(tempSeed, JSON.stringify(data, null, 2), 'utf-8');
-      fs.renameSync(tempSeed, SEED_FILE);
+  // 2. Se NÃO for serverless (/var/task), tenta manter o arquivo base em data/ atualizado
+  if (!isServerlessEnvironment()) {
+    try {
+      if (fs.existsSync(SEED_FILE)) {
+        const tempSeed = `${SEED_FILE}.tmp.${Date.now()}`;
+        fs.writeFileSync(tempSeed, JSON.stringify(data, null, 2), 'utf-8');
+        fs.renameSync(tempSeed, SEED_FILE);
+      }
+    } catch {
+      // Ignora silenciosamente qualquer restrição de disco local
     }
-  } catch {
-    // Em ambientes serverless estritamente somente leitura (/var/task), continua gravando no diretório gravável
   }
 
-  const { dir, file } = resolveWritableDbPaths();
-
+  // 3. Grava no diretório gravável (/tmp em ambiente serverless/Vercel)
   try {
+    const { dir, file } = resolveWritableDbPaths();
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -210,20 +224,7 @@ function saveDatabase(data: DatabaseSchema): void {
     fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
     fs.renameSync(tempFile, file);
   } catch (err) {
-    console.warn(`Aviso: Falha ao gravar em ${file}, tentando fallback direto em /tmp:`, err);
-    try {
-      const tmpDir = path.join(os.tmpdir(), 'controle_nf_data');
-      if (!fs.existsSync(tmpDir)) {
-        fs.mkdirSync(tmpDir, { recursive: true });
-      }
-      const tmpFile = path.join(tmpDir, 'app_database.json');
-      const tempTmpFile = `${tmpFile}.tmp.${Date.now()}`;
-      fs.writeFileSync(tempTmpFile, JSON.stringify(data, null, 2), 'utf-8');
-      fs.renameSync(tempTmpFile, tmpFile);
-    } catch (fallbackErr) {
-      console.warn('Aviso: Falha na gravação em disco. Dados mantidos com sucesso na memória do processo:', fallbackErr);
-      // Não propaga erro para o cliente HTTP para nunca quebrar com EROFS
-    }
+    console.warn('Aviso: Gravação em disco falhou, mantido em memória do processo:', err);
   }
 }
 
@@ -834,7 +835,18 @@ export function createLancamento(
   const db = ensureDatabase();
   let obra = db.obras.find((o) => o.id === data.obra_id) || db.obras[0];
   if (!obra) {
-    throw new Error('Nenhuma obra cadastrada para vincular o lançamento.');
+    const now = new Date().toISOString();
+    const novaObra: Obra = {
+      id: `obr-${crypto.randomUUID()}`,
+      codigo: 'OBR-01',
+      nome: 'Obra Principal',
+      descricao: 'Obra inicial criada automaticamente para o lançamento',
+      status: 'ativo',
+      created_at: now,
+      updated_at: now,
+    };
+    db.obras.push(novaObra);
+    obra = novaObra;
   }
 
   // Validação dos campos obrigatórios
@@ -1287,7 +1299,8 @@ export function importSpreadsheetBatch(
   admin: UserProfile,
   obra_id: string,
   arquivo_nome: string,
-  linhasValidas: ValidatedImportRow[]
+  linhasValidas: ValidatedImportRow[],
+  obraInfo?: { nome?: string; codigo?: string }
 ): { batch: ImportBatch; totalInseridos: number } {
   if (admin.role !== 'ADMINISTRADOR') {
     throw new Error('Apenas o Administrador pode confirmar a importação de planilhas.');
@@ -1295,12 +1308,23 @@ export function importSpreadsheetBatch(
 
   const db = ensureDatabase();
   let obra = db.obras.find((o) => o.id === obra_id) || db.obras[0];
+  const now = new Date().toISOString();
+
   if (!obra) {
-    throw new Error('Nenhuma obra selecionada para a importação.');
+    const novaObra: Obra = {
+      id: obra_id && obra_id.trim() ? obra_id : `obr-${crypto.randomUUID()}`,
+      codigo: obraInfo?.codigo || 'OBR-001',
+      nome: obraInfo?.nome || 'PROMORAR - RECIFE',
+      descricao: `Obra vinculada automaticamente na importação de ${arquivo_nome}`,
+      status: 'ativo',
+      created_at: now,
+      updated_at: now,
+    };
+    db.obras.push(novaObra);
+    obra = novaObra;
   }
 
   const batchId = `lote-${crypto.randomUUID()}`;
-  const now = new Date().toISOString();
 
   let somaBruto = 0;
   let somaLiquido = 0;
@@ -1469,7 +1493,8 @@ export function replaceImportBatch(
   batchId: string,
   targetObraId: string,
   arquivo_nome: string,
-  linhasValidas: ValidatedImportRow[]
+  linhasValidas: ValidatedImportRow[],
+  obraInfo?: { nome?: string; codigo?: string }
 ): { batch: ImportBatch; totalInseridos: number } {
   if (admin.role !== 'ADMINISTRADOR') {
     throw new Error('Apenas o Administrador pode substituir lotes de importação.');
@@ -1479,12 +1504,21 @@ export function replaceImportBatch(
   // Remove registros anteriores vinculados ao lote
   db.lancamentos = db.lancamentos.filter((l) => l.lote_importacao_id !== batchId);
 
+  const now = new Date().toISOString();
   let obra = db.obras.find((o) => o.id === targetObraId) || db.obras[0];
   if (!obra) {
-    throw new Error('Nenhuma obra cadastrada para vincular a planilha.');
+    const novaObra: Obra = {
+      id: targetObraId && targetObraId.trim() ? targetObraId : `obr-${crypto.randomUUID()}`,
+      codigo: obraInfo?.codigo || 'OBR-001',
+      nome: obraInfo?.nome || 'PROMORAR - RECIFE',
+      descricao: `Obra vinculada automaticamente na substituição de ${arquivo_nome}`,
+      status: 'ativo',
+      created_at: now,
+      updated_at: now,
+    };
+    db.obras.push(novaObra);
+    obra = novaObra;
   }
-
-  const now = new Date().toISOString();
   let somaBruto = 0;
   let somaLiquido = 0;
   const novosLancamentos: Lancamento[] = [];
@@ -1567,5 +1601,56 @@ export function replaceImportBatch(
 export function getImportBatches(): ImportBatch[] {
   const db = ensureDatabase();
   return db.import_batches;
+}
+
+export function getDatabaseSnapshot(): {
+  obras: Obra[];
+  lancamentos: Lancamento[];
+  import_batches: ImportBatch[];
+  timestamp: string;
+} {
+  const db = ensureDatabase();
+  return {
+    obras: db.obras,
+    lancamentos: db.lancamentos,
+    import_batches: db.import_batches,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export function restoreDatabaseSnapshot(
+  user: UserProfile,
+  snapshot: {
+    obras?: Obra[];
+    lancamentos?: Lancamento[];
+    import_batches?: ImportBatch[];
+  }
+): { obras: Obra[]; lancamentos: Lancamento[]; import_batches: ImportBatch[] } {
+  const db = ensureDatabase();
+
+  let modified = false;
+
+  if (Array.isArray(snapshot.obras) && snapshot.obras.length > 0) {
+    db.obras = snapshot.obras;
+    modified = true;
+  }
+  if (Array.isArray(snapshot.lancamentos) && snapshot.lancamentos.length > 0) {
+    db.lancamentos = snapshot.lancamentos;
+    modified = true;
+  }
+  if (Array.isArray(snapshot.import_batches) && snapshot.import_batches.length > 0) {
+    db.import_batches = snapshot.import_batches;
+    modified = true;
+  }
+
+  if (modified) {
+    saveDatabase(db);
+  }
+
+  return {
+    obras: db.obras,
+    lancamentos: db.lancamentos,
+    import_batches: db.import_batches,
+  };
 }
 

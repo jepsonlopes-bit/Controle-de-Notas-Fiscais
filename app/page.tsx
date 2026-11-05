@@ -116,16 +116,80 @@ export default function Home() {
     checkInitialState();
   }, [checkInitialState]);
 
+  // Resilient Client-Server Storage Sync
+  const syncWithStorage = useCallback(async () => {
+    try {
+      const cached = localStorage.getItem('controle_nf_storage_v3');
+      let payload: any = {};
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed.obras) && parsed.obras.length > 0) {
+            payload.clientObras = parsed.obras;
+          }
+          if (Array.isArray(parsed.lancamentos) && parsed.lancamentos.length > 0) {
+            payload.clientLancamentos = parsed.lancamentos;
+          }
+          if (Array.isArray(parsed.import_batches) && parsed.import_batches.length > 0) {
+            payload.clientBatches = parsed.import_batches;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const syncData = await res.json();
+        const freshObras = syncData.obras || [];
+        setObras(freshObras);
+        try {
+          localStorage.setItem(
+            'controle_nf_storage_v3',
+            JSON.stringify({
+              obras: freshObras,
+              lancamentos: syncData.lancamentos || [],
+              import_batches: syncData.import_batches || [],
+            })
+          );
+        } catch {}
+      }
+    } catch (err) {
+      console.warn('Sync inicial aviso:', err);
+    }
+  }, []);
+
   // Load Obras
   const fetchObras = useCallback(async () => {
     try {
       const res = await fetch('/api/obras?include_inactive=true');
       if (res.ok) {
         const data = await res.json();
-        setObras(data.obras || []);
+        const list = data.obras || [];
+        setObras(list);
+        try {
+          const cached = localStorage.getItem('controle_nf_storage_v3');
+          const parsed = cached ? JSON.parse(cached) : {};
+          parsed.obras = list;
+          localStorage.setItem('controle_nf_storage_v3', JSON.stringify(parsed));
+        } catch {}
       }
     } catch {
-      // ignore
+      // fallback do localStorage se der erro de rede
+      try {
+        const cached = localStorage.getItem('controle_nf_storage_v3');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed.obras) && parsed.obras.length > 0) {
+            setObras(parsed.obras);
+          }
+        }
+      } catch {}
     }
   }, []);
 
@@ -205,9 +269,13 @@ export default function Home() {
   // Trigger loads when authenticated
   useEffect(() => {
     if (authStatus === 'authenticated') {
-      fetchObras();
+      syncWithStorage().then(() => {
+        fetchObras();
+        fetchMetrics(selectedObraId);
+        fetchLancamentos();
+      });
     }
-  }, [authStatus, fetchObras]);
+  }, [authStatus, syncWithStorage, fetchObras, selectedObraId, fetchMetrics, fetchLancamentos]);
 
   useEffect(() => {
     if (authStatus === 'authenticated') {
@@ -249,6 +317,18 @@ export default function Home() {
     setLancamentos((prev) => prev.filter((item) => item.id !== id));
     setTotalLancamentos((prev) => Math.max(0, prev - 1));
 
+    // Atualiza cache local
+    try {
+      const cached = localStorage.getItem('controle_nf_storage_v3');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed.lancamentos)) {
+          parsed.lancamentos = parsed.lancamentos.filter((l: any) => l.id !== id);
+          localStorage.setItem('controle_nf_storage_v3', JSON.stringify(parsed));
+        }
+      }
+    } catch {}
+
     try {
       const res = await fetch(`/api/lancamentos?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
@@ -262,7 +342,7 @@ export default function Home() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        alert(data.error || 'Erro ao excluir o lançamento no servidor.');
+        console.warn('Erro ao excluir no servidor:', data.error);
         fetchLancamentos();
         fetchMetrics(selectedObraId);
         return;
@@ -271,7 +351,7 @@ export default function Home() {
       await fetchLancamentos();
       await fetchMetrics(selectedObraId);
     } catch (err: any) {
-      alert('Falha na conexão ao excluir lançamento: ' + err.message);
+      console.warn('Falha na requisição ao excluir:', err.message);
       fetchLancamentos();
     }
   }
@@ -466,10 +546,20 @@ export default function Home() {
           {currentTab === 'importar' && (
             <ImportarPlanilhaView
               obras={obras}
+              selectedObraId={selectedObraId}
+              onSelectObra={setSelectedObraId}
               currentUser={currentUser}
-              onSuccessImport={() => {
-                fetchLancamentos();
-                fetchMetrics(selectedObraId);
+              onSuccessImport={async () => {
+                try {
+                  const res = await fetch('/api/sync');
+                  if (res.ok) {
+                    const snap = await res.json();
+                    localStorage.setItem('controle_nf_storage_v3', JSON.stringify(snap));
+                  }
+                } catch {}
+                await fetchObras();
+                await fetchLancamentos();
+                await fetchMetrics(selectedObraId);
               }}
             />
           )}
@@ -478,9 +568,16 @@ export default function Home() {
             <ObrasView
               obras={obras}
               currentUser={currentUser}
-              onRefresh={() => {
-                fetchObras();
-                fetchMetrics(selectedObraId);
+              onRefresh={async () => {
+                try {
+                  const res = await fetch('/api/sync');
+                  if (res.ok) {
+                    const snap = await res.json();
+                    localStorage.setItem('controle_nf_storage_v3', JSON.stringify(snap));
+                  }
+                } catch {}
+                await fetchObras();
+                await fetchMetrics(selectedObraId);
               }}
             />
           )}
@@ -499,9 +596,16 @@ export default function Home() {
       <LancamentoModal
         isOpen={isLancamentoModalOpen}
         onClose={() => setIsLancamentoModalOpen(false)}
-        onSuccess={() => {
-          fetchLancamentos();
-          fetchMetrics(selectedObraId);
+        onSuccess={async () => {
+          try {
+            const res = await fetch('/api/sync');
+            if (res.ok) {
+              const snap = await res.json();
+              localStorage.setItem('controle_nf_storage_v3', JSON.stringify(snap));
+            }
+          } catch {}
+          await fetchLancamentos();
+          await fetchMetrics(selectedObraId);
         }}
         lancamento={selectedLancamento}
         obras={obras}

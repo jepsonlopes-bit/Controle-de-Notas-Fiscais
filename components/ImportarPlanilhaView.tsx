@@ -22,21 +22,59 @@ import { formatarMoeda, formatarDataBR, formatarDataHoraBR } from '@/lib/formatt
 
 interface ImportarPlanilhaViewProps {
   obras: Obra[];
+  selectedObraId?: string;
+  onSelectObra?: (id: string) => void;
   currentUser: UserProfile;
   onSuccessImport: () => void;
 }
 
 export function ImportarPlanilhaView({
   obras,
+  selectedObraId: propSelectedObraId,
+  onSelectObra,
   currentUser,
   onSuccessImport,
 }: ImportarPlanilhaViewProps) {
   const isAdmin = currentUser.role === 'ADMINISTRADOR';
 
   // Obra selecionada padrão
-  const defaultObra = obras.find((o) => o.status === 'ativo') || obras[0];
+  const getInitialObraId = () => {
+    if (propSelectedObraId && propSelectedObraId !== 'todas' && obras.some((o) => o.id === propSelectedObraId)) {
+      return propSelectedObraId;
+    }
+    const defaultObra = obras.find((o) => o.status === 'ativo') || obras[0];
+    return defaultObra?.id || '';
+  };
 
-  const [selectedObraId, setSelectedObraId] = useState<string>(defaultObra?.id || '');
+  const [selectedObraId, setSelectedObraId] = useState<string>(getInitialObraId);
+
+  // Sincroniza sempre que a lista de obras ou a obra do header mudar
+  useEffect(() => {
+    if (obras && obras.length > 0) {
+      setSelectedObraId((prev) => {
+        if (prev && obras.some((o) => o.id === prev)) {
+          return prev;
+        }
+        if (propSelectedObraId && propSelectedObraId !== 'todas' && obras.some((o) => o.id === propSelectedObraId)) {
+          return propSelectedObraId;
+        }
+        const active = obras.find((o) => o.status === 'ativo') || obras[0];
+        return active ? active.id : '';
+      });
+    }
+  }, [obras, propSelectedObraId]);
+
+  // Resolução da obra padrão e efetiva garantindo que nunca fique vazia se houver obras
+  const resolvedObraId =
+    selectedObraId ||
+    (propSelectedObraId && propSelectedObraId !== 'todas' && obras.some((o) => o.id === propSelectedObraId)
+      ? propSelectedObraId
+      : '') ||
+    obras.find((o) => o.status === 'ativo')?.id ||
+    obras[0]?.id ||
+    '';
+
+  const selectedObra = obras.find((o) => o.id === resolvedObraId) || obras[0];
   const [fileName, setFileName] = useState('');
   const [rawRows, setRawRows] = useState<any[]>([]);
   const [validationResult, setValidationResult] = useState<any>(null);
@@ -147,7 +185,7 @@ export function ImportarPlanilhaView({
         }
 
         setRawRows(data);
-        await runValidation(data, selectedObraId);
+        await runValidation(data, resolvedObraId);
       } catch (err: any) {
         setErrorMessage(`Falha ao ler o arquivo: ${err.message}`);
       }
@@ -156,7 +194,7 @@ export function ImportarPlanilhaView({
   }
 
   async function runValidation(rows: any[], obraId: string) {
-    const targetObra = obraId || obras[0]?.id || '';
+    const targetObra = obraId || resolvedObraId || obras[0]?.id || '';
 
     setIsValidating(true);
     setErrorMessage('');
@@ -200,13 +238,18 @@ export function ImportarPlanilhaView({
     setIsConfirming(true);
     setErrorMessage('');
 
+    const finalObraId = resolvedObraId || selectedObraId || obras[0]?.id || '';
+    const finalObra = obras.find((o) => o.id === finalObraId) || selectedObra || obras[0];
+
     try {
       const res = await fetch('/api/importar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           acao: 'confirmar',
-          obra_id: selectedObraId,
+          obra_id: finalObraId,
+          obra_nome: finalObra?.nome || '',
+          obra_codigo: finalObra?.codigo || '',
           arquivo_nome: fileName || 'planilha_importada.xlsx',
           linhas_validadas: validationResult.linhas,
           batch_id_substituir: substitutingBatch?.id || null,
@@ -357,24 +400,41 @@ export function ImportarPlanilhaView({
             <label className="block text-xs font-semibold text-slate-800">
               Obra de Destino <span className="text-rose-500">*</span>
             </label>
-            <div className="relative">
-              <select
-                value={selectedObraId}
-                onChange={(e) => {
-                  setSelectedObraId(e.target.value);
-                  if (rawRows.length > 0) {
-                    runValidation(rawRows, e.target.value);
-                  }
-                }}
-                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-900 focus:border-emerald-500 focus:outline-none"
-              >
-                {obras.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.codigo} - {o.nome} {o.status === 'inativo' ? '(Inativa)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {obras.length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Building2 className="h-4 w-4 text-amber-600" />
+                  <span>Nenhuma obra cadastrada ainda</span>
+                </div>
+                <p className="mt-1 text-[11px] text-amber-700">
+                  O sistema criará automaticamente a <strong>Obra Principal</strong> ao importar a planilha (você poderá cadastrar outras obras ou renomeá-la na aba Gestão de Obras).
+                </p>
+              </div>
+            ) : (
+              <div className="relative">
+                <select
+                  value={resolvedObraId}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setSelectedObraId(newId);
+                    setErrorMessage('');
+                    if (onSelectObra) {
+                      onSelectObra(newId);
+                    }
+                    if (rawRows.length > 0) {
+                      runValidation(rawRows, newId);
+                    }
+                  }}
+                  className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-900 focus:border-emerald-500 focus:outline-none"
+                >
+                  {obras.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.codigo} - {o.nome} {o.status === 'inativo' ? '(Inativa)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <p className="text-[11px] text-slate-400">
               Selecione a obra à qual os lançamentos e parcelas da planilha serão vinculados.
             </p>
