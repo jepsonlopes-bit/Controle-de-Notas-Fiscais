@@ -14,36 +14,6 @@
       "passwordHash": "e65773bd7cc13b4c9a8f37713005b6cde97e5db28de82514905cab26aa1a913b0d67003bba295b4d7eab5f5e78a133d4793b4d0e7392d140510960af0e021088",
       "passwordSalt": "8a4a1edc86d4b529258c888128ad329a",
       "senha_visivel": "123456"
-    },
-    {
-      "id": "usr-mariana-02",
-      "email": "mariana.souza@empresa.com.br",
-      "nome": "Mariana Souza",
-      "cargo": "Engenheira de Planejamento",
-      "role": "USUARIO",
-      "status": "ativo",
-      "obras_permitidas": [],
-      "created_at": "2026-11-01T14:15:00.000Z",
-      "updated_at": "2026-11-05T20:49:02.262Z",
-      "ultimo_login": "2026-11-01T14:22:00.000Z",
-      "passwordHash": "94ac7bd184566ad767bc95677d3340ba3836e96b5399c9f38233410e9871d8fc1ccc5cc4d48c479664d49ae71a628c079ea84a75c110bba7337afcad04e516ad",
-      "passwordSalt": "02f98d3e8d95863b9a879eb2f55b83cc",
-      "senha_visivel": "123456"
-    },
-    {
-      "id": "usr-carlos-03",
-      "email": "carlos.silveira@empresa.com.br",
-      "nome": "Carlos Silveira",
-      "cargo": "Comprador de Suprimentos",
-      "role": "USUARIO",
-      "status": "ativo",
-      "obras_permitidas": [],
-      "created_at": "2026-11-01T14:18:00.000Z",
-      "updated_at": "2026-11-05T20:49:02.263Z",
-      "ultimo_login": "2026-11-01T14:21:00.000Z",
-      "passwordHash": "65f37b8d5ede835bacb82315c7ac963df267ddfb75684684ae2a85fd516c5cbe0b1f7a7f7db6cad7dc436cd7c7ac54ac248b436c1a2fb1688a766d07a07d76b2",
-      "passwordSalt": "c44a732c3b834992c7aaef428c69a9a2",
-      "senha_visivel": "123456"
     }
   ],
   "obras": [],

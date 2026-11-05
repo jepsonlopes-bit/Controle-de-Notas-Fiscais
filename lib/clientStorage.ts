@@ -14,29 +14,25 @@ const DEFAULT_USERS_SEED: UserProfile[] = [
     created_at: '2026-11-01T14:10:51.922Z',
     updated_at: '2026-11-01T14:10:51.922Z',
   },
-  {
-    id: 'usr-mariana-02',
-    email: 'mariana.souza@empresa.com.br',
-    nome: 'Mariana Souza',
-    cargo: 'Engenheira de Planejamento',
-    role: 'USUARIO',
-    status: 'ativo',
-    senha_visivel: '123456',
-    created_at: '2026-11-01T14:15:00.000Z',
-    updated_at: '2026-11-01T14:15:00.000Z',
-  },
-  {
-    id: 'usr-carlos-03',
-    email: 'carlos.silveira@empresa.com.br',
-    nome: 'Carlos Silveira',
-    cargo: 'Comprador de Suprimentos',
-    role: 'USUARIO',
-    status: 'ativo',
-    senha_visivel: '123456',
-    created_at: '2026-11-01T14:18:00.000Z',
-    updated_at: '2026-11-01T14:18:00.000Z',
-  },
 ];
+
+const EXCLUDED_DEMO_EMAILS = new Set([
+  'mariana.souza@empresa.com.br',
+  'carlos.silveira@empresa.com.br',
+]);
+const EXCLUDED_DEMO_IDS = new Set(['usr-mariana-02', 'usr-carlos-03']);
+
+export function filterValidUsers(users: UserProfile[]): UserProfile[] {
+  if (!Array.isArray(users)) return DEFAULT_USERS_SEED;
+  const filtered = users.filter((u) => {
+    if (!u || !u.id) return false;
+    if (EXCLUDED_DEMO_IDS.has(u.id)) return false;
+    const emailNorm = (u.email || '').trim().toLowerCase();
+    if (EXCLUDED_DEMO_EMAILS.has(emailNorm)) return false;
+    return true;
+  });
+  return filtered.length > 0 ? filtered : DEFAULT_USERS_SEED;
+}
 
 export interface ClientDataStore {
   users: UserProfile[];
@@ -87,7 +83,9 @@ export function getClientSnapshot(): ClientDataStore {
     }
 
     const parsed = JSON.parse(raw);
-    const usersList = Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : DEFAULT_USERS_SEED;
+    const usersList = filterValidUsers(
+      Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : DEFAULT_USERS_SEED
+    );
     return {
       users: usersList,
       obras: Array.isArray(parsed.obras) ? parsed.obras : [],
@@ -114,7 +112,7 @@ export function saveClientSnapshot(partial: {
   try {
     const current = getClientSnapshot();
     const updated: ClientDataStore = {
-      users: partial.users !== undefined ? partial.users : current.users,
+      users: filterValidUsers(partial.users !== undefined ? partial.users : current.users),
       obras: partial.obras !== undefined ? partial.obras : current.obras,
       lancamentos: partial.lancamentos !== undefined ? partial.lancamentos : current.lancamentos,
       import_batches: partial.import_batches !== undefined ? partial.import_batches : current.import_batches,
@@ -239,7 +237,7 @@ export async function syncStorageWithServer(): Promise<ClientDataStore> {
           });
         });
       }
-      const mergedUsers = Array.from(userMap.values());
+      const mergedUsers = filterValidUsers(Array.from(userMap.values()));
 
       const mergedStore = saveClientSnapshot({
         users: mergedUsers,
