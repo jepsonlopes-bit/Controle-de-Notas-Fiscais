@@ -39,8 +39,8 @@ const DEFAULT_ADMIN: UserProfile = {
 export default function Home() {
   const [authStatus, setAuthStatus] = useState<
     'loading' | 'uninitialized' | 'unauthenticated' | 'authenticated'
-  >('authenticated');
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(DEFAULT_ADMIN);
+  >('loading');
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -125,10 +125,15 @@ export default function Home() {
         const dataMe = await resMe.json();
         if (dataMe.user) {
           setCurrentUser(dataMe.user);
+          setAuthStatus('authenticated');
+          return;
         }
       }
+      setCurrentUser(null);
+      setAuthStatus('unauthenticated');
     } catch {
-      // mantém o default admin
+      setCurrentUser(null);
+      setAuthStatus('unauthenticated');
     }
   }, []);
 

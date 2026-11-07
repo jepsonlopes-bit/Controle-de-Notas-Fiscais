@@ -122,7 +122,21 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
   return testHash === hash;
 }
 
-const defaultObras: Obra[] = [];
+const DEFAULT_INITIAL_ADMIN: StoredUser = {
+  id: 'usr-788f5c46-337e-484e-b359-4d9fe2cf900c',
+  email: 'jepson.lopes@gmail.com',
+  nome: 'Jepson Lopes',
+  cargo: 'Diretor / Administrador Geral',
+  role: 'ADMINISTRADOR',
+  status: 'ativo',
+  obras_permitidas: [],
+  created_at: '2026-11-01T14:10:51.922Z',
+  updated_at: '2026-11-01T14:10:51.922Z',
+  ultimo_login: '2026-11-01T14:20:00.000Z',
+  passwordHash: 'e65773bd7cc13b4c9a8f37713005b6cde97e5db28de82514905cab26aa1a913b0d67003bba295b4d7eab5f5e78a133d4793b4d0e7392d140510960af0e021088',
+  passwordSalt: '8a4a1edc86d4b529258c888128ad329a',
+  senha_visivel: '123456',
+};
 
 function ensureDatabase(): DatabaseSchema {
   // 1. Se já carregado na memória do processo, usa o cache direto
@@ -132,6 +146,9 @@ function ensureDatabase(): DatabaseSchema {
     }
     if (!globalThis.__appDatabaseCache.lancamentos) {
       globalThis.__appDatabaseCache.lancamentos = [];
+    }
+    if (!globalThis.__appDatabaseCache.users || !globalThis.__appDatabaseCache.users.some((u) => u.role === 'ADMINISTRADOR' && u.status === 'ativo')) {
+      globalThis.__appDatabaseCache.users = [DEFAULT_INITIAL_ADMIN, ...(globalThis.__appDatabaseCache.users || [])];
     }
     autoUpdateLancamentosStatus(globalThis.__appDatabaseCache);
     return globalThis.__appDatabaseCache;
@@ -149,6 +166,9 @@ function ensureDatabase(): DatabaseSchema {
       }
       if (!parsed.lancamentos) {
         parsed.lancamentos = [];
+      }
+      if (!parsed.users || !parsed.users.some((u) => u.role === 'ADMINISTRADOR' && u.status === 'ativo')) {
+        parsed.users = [DEFAULT_INITIAL_ADMIN, ...(parsed.users || [])];
       }
       autoUpdateLancamentosStatus(parsed);
       globalThis.__appDatabaseCache = parsed;
@@ -169,6 +189,9 @@ function ensureDatabase(): DatabaseSchema {
       if (!seedParsed.lancamentos) {
         seedParsed.lancamentos = [];
       }
+      if (!seedParsed.users || !seedParsed.users.some((u) => u.role === 'ADMINISTRADOR' && u.status === 'ativo')) {
+        seedParsed.users = [DEFAULT_INITIAL_ADMIN, ...(seedParsed.users || [])];
+      }
       autoUpdateLancamentosStatus(seedParsed);
       globalThis.__appDatabaseCache = seedParsed;
       try {
@@ -182,9 +205,9 @@ function ensureDatabase(): DatabaseSchema {
     }
   }
 
-  // 4. Fallback inicial caso não haja nenhum arquivo
+  // 4. Fallback inicial caso não haja nenhum arquivo (garante o admin Jepson Lopes)
   const initialData: DatabaseSchema = {
-    users: [],
+    users: [DEFAULT_INITIAL_ADMIN],
     obras: [],
     lancamentos: [],
     audit_logs: [],

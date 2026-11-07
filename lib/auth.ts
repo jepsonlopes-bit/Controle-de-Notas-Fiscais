@@ -54,18 +54,6 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<UserProfil
     }
   }
 
-  // Acesso direto sem barreira de login inicial para visualização do sistema pronto
-  const defaultAdmin: UserProfile = {
-    id: 'usr-788f5c46-337e-484e-b359-4d9fe2cf900c',
-    email: 'jepson.lopes@gmail.com',
-    nome: 'Jepson Lopes',
-    cargo: 'Diretor / Administrador Geral',
-    role: 'ADMINISTRADOR',
-    status: 'ativo',
-    obras_permitidas: [],
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  return defaultAdmin;
+  // Se não houver token válido, retorna null para direcionar à tela de login
+  return null;
 }

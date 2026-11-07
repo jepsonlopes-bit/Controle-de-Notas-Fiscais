@@ -10,7 +10,7 @@
       "obras_permitidas": [],
       "created_at": "2026-11-01T14:10:51.922Z",
       "updated_at": "2026-11-05T20:49:02.260Z",
-      "ultimo_login": "2026-11-01T14:20:00.000Z",
+      "ultimo_login": "2026-11-07T13:46:20.733Z",
       "passwordHash": "e65773bd7cc13b4c9a8f37713005b6cde97e5db28de82514905cab26aa1a913b0d67003bba295b4d7eab5f5e78a133d4793b4d0e7392d140510960af0e021088",
       "passwordSalt": "8a4a1edc86d4b529258c888128ad329a",
       "senha_visivel": "123456"
@@ -19,6 +19,40 @@
   "obras": [],
   "lancamentos": [],
   "audit_logs": [
+    {
+      "id": "aud-b94cb4bf-d6a0-44a1-b5b1-9d37c11089a0",
+      "usuario_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",
+      "usuario_nome": "Jepson Lopes",
+      "usuario_email": "jepson.lopes@gmail.com",
+      "acao": "EXCLUSAO",
+      "entidade": "usuario",
+      "registro_id": "usr-a30ec157-6734-4d6c-99bc-276c9b1c1027",
+      "valores_anteriores": {
+        "nome": "Operador de Consulta",
+        "email": "operador@empresa.com.br",
+        "role": "USUARIO"
+      },
+      "valores_novos": null,
+      "descricao_resumo": "Administrador Jepson Lopes excluiu o usuário Operador de Consulta (operador@empresa.com.br)",
+      "created_at": "2026-11-07T13:46:40.507Z"
+    },
+    {
+      "id": "aud-da5e744f-13c2-4d4c-865f-caddef97a0fe",
+      "usuario_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",
+      "usuario_nome": "Jepson Lopes",
+      "usuario_email": "jepson.lopes@gmail.com",
+      "acao": "CRIACAO_USUARIO",
+      "entidade": "usuario",
+      "registro_id": "usr-a30ec157-6734-4d6c-99bc-276c9b1c1027",
+      "valores_anteriores": null,
+      "valores_novos": {
+        "email": "operador@empresa.com.br",
+        "role": "USUARIO",
+        "nome": "Operador de Consulta"
+      },
+      "descricao_resumo": "Administrador criou usuário: Operador de Consulta (operador@empresa.com.br) com perfil USUARIO",
+      "created_at": "2026-11-07T13:46:26.118Z"
+    },
     {
       "id": "aud-cdbd13c2-a6e6-49c2-b083-e4c14aad7f7b",
       "usuario_id": "usr-788f5c46-337e-484e-b359-4d9fe2cf900c",

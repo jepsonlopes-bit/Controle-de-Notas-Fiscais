@@ -33,6 +33,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action, clientUsers, clientObras, clientLancamentos, clientBatches } = body;
 
+    if ((action === 'reset_all' || action === 'reset_lancamentos') && user.role !== 'ADMINISTRADOR') {
+      return NextResponse.json(
+        { error: 'Acesso negado: apenas administradores podem resetar dados.' },
+        { status: 403 }
+      );
+    }
+
     if (action === 'reset_all') {
       clearAllData(user);
       return NextResponse.json({

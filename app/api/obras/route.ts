@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const includeInactive = searchParams.get('include_inactive') === 'true' || user.role === 'ADMINISTRADOR';
+  const includeInactive = searchParams.get('include_inactive') !== 'false';
   const obras = getObrasWithStats(includeInactive);
   return NextResponse.json({ obras });
 }
