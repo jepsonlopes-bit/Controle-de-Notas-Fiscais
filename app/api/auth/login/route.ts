@@ -5,10 +5,11 @@ import { createSessionToken } from '@/lib/auth';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, senha, clientUsers } = body;
+    const { email, usuario, senha, clientUsers } = body;
+    const identifier = (usuario || email || '').trim();
 
-    if (!email || !senha) {
-      return NextResponse.json({ error: 'Informe e-mail e senha.' }, { status: 400 });
+    if (!identifier || !senha) {
+      return NextResponse.json({ error: 'Informe usuário e senha.' }, { status: 400 });
     }
 
     // Sincroniza usuários do cliente antes de autenticar para garantir persistência em instâncias novas
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    const user = authenticateUser(email, senha);
+    const user = authenticateUser(identifier, senha);
     const token = createSessionToken(user.id);
 
     const res = NextResponse.json({

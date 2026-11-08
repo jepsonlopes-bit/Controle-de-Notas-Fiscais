@@ -2,17 +2,17 @@ import type {Metadata} from 'next';
 import './globals.css'; // Global styles
 
 export const metadata: Metadata = {
-  title: 'Controle de Notas Fiscais e Medições',
-  description: 'Sistema full-stack para gestão administrativa de notas fiscais, ordens de compra, medições e pagamentos com suporte a múltiplas obras e controle de auditoria.',
+  title: "ControlNF's - Gestão de Obras, Medições e Pagamentos",
+  description: "ControlNF's - Sistema para gestão administrativa de notas fiscais, ordens de compra, medições e pagamentos com suporte a múltiplas obras.",
   openGraph: {
-    title: 'Controle de Notas Fiscais e Medições',
-    description: 'Sistema full-stack para gestão administrativa de notas fiscais, ordens de compra, medições e pagamentos com suporte a múltiplas obras e controle de auditoria.',
+    title: "ControlNF's - Gestão de Obras, Medições e Pagamentos",
+    description: "ControlNF's - Sistema para gestão administrativa de notas fiscais, ordens de compra, medições e pagamentos com suporte a múltiplas obras.",
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Controle de Notas Fiscais e Medições',
-    description: 'Sistema full-stack para gestão administrativa de notas fiscais, ordens de compra, medições e pagamentos com suporte a múltiplas obras e controle de auditoria.',
+    title: "ControlNF's - Gestão de Obras, Medições e Pagamentos",
+    description: "ControlNF's - Sistema para gestão administrativa de notas fiscais, ordens de compra, medições e pagamentos com suporte a múltiplas obras.",
   },
 };
 

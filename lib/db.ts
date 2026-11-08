@@ -25,6 +25,7 @@ function stripPassword(u: StoredUser): UserProfile {
   return {
     id: u.id,
     email: u.email,
+    username: u.username || (u.email ? u.email.split('@')[0] : 'usuario'),
     nome: u.nome,
     cargo: u.cargo,
     role: u.role,
@@ -125,6 +126,7 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
 const DEFAULT_INITIAL_ADMIN: StoredUser = {
   id: 'usr-788f5c46-337e-484e-b359-4d9fe2cf900c',
   email: 'jepson.lopes@gmail.com',
+  username: 'jeepson.lopes',
   nome: 'Jepson Lopes',
   cargo: 'Diretor / Administrador Geral',
   role: 'ADMINISTRADOR',
@@ -312,13 +314,46 @@ export function createInitialAdmin(data: {
   return stripPassword(newAdmin);
 }
 
-export function authenticateUser(email: string, senha: string): UserProfile {
+export function authenticateUser(identifier: string, senha: string): UserProfile {
   const db = ensureDatabase();
-  const normalizedEmail = email.trim().toLowerCase();
-  const user = db.users.find((u) => u.email === normalizedEmail);
+  const rawId = (identifier || '').trim().toLowerCase();
+  if (!rawId) {
+    throw new Error('Informe o usuário e a senha.');
+  }
+
+  const usernamePart = rawId.includes('@') ? rawId.split('@')[0] : rawId;
+
+  const user = db.users.find((u) => {
+    const userEmail = (u.email || '').trim().toLowerCase();
+    const userEmailPrefix = userEmail.split('@')[0];
+    const userExplicitUsername = (u.username || '').trim().toLowerCase();
+
+    // 1. Coincidência direta por email
+    if (userEmail === rawId) return true;
+
+    // 2. Coincidência por username explícito (ex: 'jeepson.lopes')
+    if (userExplicitUsername && (userExplicitUsername === rawId || userExplicitUsername === usernamePart)) {
+      return true;
+    }
+
+    // 3. Coincidência pelo prefixo antes do @ do e-mail (ex: 'jepson.lopes')
+    if (userEmailPrefix && (userEmailPrefix === rawId || userEmailPrefix === usernamePart)) {
+      return true;
+    }
+
+    // 4. Tolerância para a variação solicitada no exemplo: 'jeepson.lopes' vs 'jepson.lopes'
+    if (
+      (userEmailPrefix === 'jepson.lopes' || userExplicitUsername === 'jepson.lopes' || userExplicitUsername === 'jeepson.lopes') &&
+      (rawId === 'jeepson.lopes' || rawId === 'jepson.lopes' || rawId === 'jeepson' || rawId === 'jepson')
+    ) {
+      return true;
+    }
+
+    return false;
+  });
 
   if (!user) {
-    throw new Error('Credenciais inválidas.');
+    throw new Error('Usuário ou senha incorretos.');
   }
 
   if (user.status === 'bloqueado') {
@@ -327,7 +362,7 @@ export function authenticateUser(email: string, senha: string): UserProfile {
 
   const isValid = verifyPassword(senha, user.passwordHash, user.passwordSalt);
   if (!isValid) {
-    throw new Error('Credenciais inválidas.');
+    throw new Error('Usuário ou senha incorretos.');
   }
 
   user.ultimo_login = new Date().toISOString();
@@ -353,6 +388,7 @@ export function createUserByAdmin(
   data: {
     nome: string;
     email: string;
+    username?: string;
     senha: string;
     cargo?: string;
     role: UserRole;
@@ -365,6 +401,8 @@ export function createUserByAdmin(
 
   const db = ensureDatabase();
   const normalizedEmail = data.email.trim().toLowerCase();
+  const userExplicit = (data.username || '').trim().toLowerCase() || normalizedEmail.split('@')[0];
+
   if (db.users.some((u) => u.email === normalizedEmail)) {
     throw new Error('Já existe um usuário cadastrado com este e-mail.');
   }
@@ -374,6 +412,7 @@ export function createUserByAdmin(
   const newUser: StoredUser = {
     id: `usr-${crypto.randomUUID()}`,
     email: normalizedEmail,
+    username: userExplicit,
     nome: data.nome.trim(),
     cargo: data.cargo?.trim() || '',
     role: data.role,
@@ -397,8 +436,8 @@ export function createUserByAdmin(
     entidade: 'usuario',
     registro_id: newUser.id,
     valores_anteriores: null,
-    valores_novos: { email: newUser.email, role: newUser.role, nome: newUser.nome },
-    descricao_resumo: `Administrador criou usuário: ${newUser.nome} (${newUser.email}) com perfil ${newUser.role}`,
+    valores_novos: { email: newUser.email, username: newUser.username, role: newUser.role, nome: newUser.nome },
+    descricao_resumo: `Administrador criou usuário: ${newUser.nome} (${newUser.username}) com perfil ${newUser.role}`,
     created_at: now,
   });
 
@@ -412,6 +451,7 @@ export function updateUser(
   data: {
     nome?: string;
     email?: string;
+    username?: string;
     cargo?: string;
     senha?: string;
     role?: UserRole;
@@ -429,6 +469,7 @@ export function updateUser(
   const valoresAnteriores = {
     nome: user.nome,
     email: user.email,
+    username: user.username,
     cargo: user.cargo,
     role: user.role,
     status: user.status,
@@ -438,12 +479,19 @@ export function updateUser(
     user.nome = data.nome.trim();
   }
 
+  if (data.username !== undefined) {
+    user.username = data.username.trim().toLowerCase();
+  }
+
   if (data.email && data.email.trim()) {
     const normalized = data.email.trim().toLowerCase();
     if (db.users.some((u) => u.id !== userId && u.email === normalized)) {
       throw new Error('Já existe outro usuário cadastrado com este e-mail.');
     }
     user.email = normalized;
+    if (!user.username) {
+      user.username = normalized.split('@')[0];
+    }
   }
 
   if (data.cargo !== undefined) {
@@ -1819,6 +1867,7 @@ export function restoreDatabaseSnapshot(
       if (existing) {
         let userChanged = false;
         if (u.nome && existing.nome !== u.nome) { existing.nome = u.nome; userChanged = true; }
+        if (u.username && existing.username !== u.username) { existing.username = u.username; userChanged = true; }
         if (u.cargo !== undefined && existing.cargo !== u.cargo) { existing.cargo = u.cargo; userChanged = true; }
         if (u.role && existing.role !== u.role) { existing.role = u.role; userChanged = true; }
         if (u.status && existing.status !== u.status) { existing.status = u.status; userChanged = true; }
@@ -1840,6 +1889,7 @@ export function restoreDatabaseSnapshot(
         db.users.push({
           id: u.id,
           email: normalizedEmail,
+          username: u.username || normalizedEmail.split('@')[0],
           nome: u.nome || 'Novo Usuário',
           cargo: u.cargo || '',
           role: u.role || 'USUARIO',

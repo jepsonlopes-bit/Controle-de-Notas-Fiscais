@@ -48,6 +48,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [senha, setSenha] = useState('');
   const [cargo, setCargo] = useState('');
   const [role, setRole] = useState<UserRole>('USUARIO');
@@ -59,6 +60,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editNome, setEditNome] = useState('');
   const [editEmail, setEditEmail] = useState('');
+  const [editUsername, setEditUsername] = useState('');
   const [editCargo, setEditCargo] = useState('');
   const [editSenha, setEditSenha] = useState('');
   const [editRole, setEditRole] = useState<UserRole>('USUARIO');
@@ -121,12 +123,14 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
     setSubmitting(true);
 
     try {
+      const explicitUsername = username.trim() || email.split('@')[0];
       const res = await fetch('/api/usuarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nome,
           email,
+          username: explicitUsername,
           senha,
           cargo,
           role,
@@ -140,12 +144,14 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
         // Grava de imediato no armazenamento mestre do cliente
         saveUserLocally({
           ...data.usuario,
+          username: explicitUsername,
           senha_visivel: senha,
         });
       } else {
         saveUserLocally({
           id: `usr-${Date.now()}`,
           email,
+          username: explicitUsername,
           nome,
           cargo,
           role,
@@ -161,6 +167,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
       setModalOpen(false);
       setNome('');
       setEmail('');
+      setUsername('');
       setSenha('');
       setCargo('');
       setShowCreatePassword(false);
@@ -176,6 +183,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
     setEditingUserId(user.id);
     setEditNome(user.nome);
     setEditEmail(user.email);
+    setEditUsername(user.username || user.email.split('@')[0]);
     setEditCargo(user.cargo || '');
     setEditSenha(user.senha_visivel || '123456');
     setEditRole(user.role);
@@ -194,6 +202,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
     setEditSubmitting(true);
 
     try {
+      const explicitEditUsername = editUsername.trim() || editEmail.split('@')[0];
       const res = await fetch('/api/usuarios', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -202,6 +211,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
           acao: 'editar_usuario',
           nome: editNome,
           email: editEmail,
+          username: explicitEditUsername,
           cargo: editCargo,
           senha: editSenha,
           role: editRole,
@@ -215,6 +225,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
       if (data.usuario) {
         saveUserLocally({
           ...data.usuario,
+          username: explicitEditUsername,
           senha_visivel: editSenha,
         });
       } else {
@@ -225,6 +236,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
             ...current,
             nome: editNome,
             email: editEmail,
+            username: explicitEditUsername,
             cargo: editCargo,
             role: editRole,
             status: editStatus,
@@ -384,7 +396,7 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
               <tr>
                 <th className="py-3.5 pl-4 pr-3">Nome / Cargo</th>
-                <th className="py-3.5 px-3">E-mail</th>
+                <th className="py-3.5 px-3">Usuário / E-mail</th>
                 <th className="py-3.5 px-3">Senha de Acesso</th>
                 <th className="py-3.5 px-3">Perfil de Acesso</th>
                 <th className="py-3.5 px-3">Status</th>
@@ -411,7 +423,12 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                         <div>{u.nome}</div>
                         <div className="text-[11px] text-slate-400">{u.cargo || 'Não especificado'}</div>
                       </td>
-                      <td className="py-3.5 px-3 text-slate-600 font-mono">{u.email}</td>
+                      <td className="py-3.5 px-3">
+                        <div className="font-mono text-xs font-semibold text-slate-800">
+                          {u.username || u.email.split('@')[0]}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">{u.email}</div>
+                      </td>
                       <td className="py-3.5 px-3 whitespace-nowrap">
                         <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1">
                           <span className="font-mono text-xs font-semibold text-slate-800">
@@ -545,18 +562,38 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">
-                  E-mail de Acesso <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="carlos.silveira@empresa.com.br"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Usuário para Login
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="ex: carlos.silveira"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value.toLowerCase().trim())}
+                    className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none font-mono"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-400">Padrão: nome de usuário no login</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    E-mail de Acesso <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="carlos.silveira@empresa.com.br"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (!username && e.target.value.includes('@')) {
+                        setUsername(e.target.value.split('@')[0].toLowerCase().trim());
+                      }
+                    }}
+                    className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div>
@@ -675,17 +712,32 @@ export function UsuariosView({ currentUser, obras }: UsuariosViewProps) {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">
-                  E-mail de Acesso <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Usuário para Login <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ex: carlos.silveira"
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value.toLowerCase().trim())}
+                    className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    E-mail de Acesso <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div>

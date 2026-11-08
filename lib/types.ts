@@ -5,6 +5,7 @@ export type UserStatus = 'ativo' | 'bloqueado';
 export interface UserProfile {
   id: string;
   email: string;
+  username?: string; // Nome de usuário para login (ex: jeepson.lopes)
   nome: string;
   cargo?: string;
   role: UserRole;

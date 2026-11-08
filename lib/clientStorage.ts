@@ -6,6 +6,7 @@ const DEFAULT_USERS_SEED: UserProfile[] = [
   {
     id: 'usr-788f5c46-337e-484e-b359-4d9fe2cf900c',
     email: 'jepson.lopes@gmail.com',
+    username: 'jeepson.lopes',
     nome: 'Jepson Lopes',
     cargo: 'Diretor / Administrador Geral',
     role: 'ADMINISTRADOR',
@@ -138,11 +139,13 @@ export function saveUserLocally(user: UserProfile): ClientDataStore {
     updatedUsers[existingIdx] = {
       ...updatedUsers[existingIdx],
       ...user,
+      username: user.username || updatedUsers[existingIdx].username || (user.email ? user.email.split('@')[0] : 'usuario'),
       senha_visivel: user.senha_visivel || updatedUsers[existingIdx].senha_visivel || '123456',
     };
   } else {
     updatedUsers.push({
       ...user,
+      username: user.username || (user.email ? user.email.split('@')[0] : 'usuario'),
       senha_visivel: user.senha_visivel || '123456',
     });
   }

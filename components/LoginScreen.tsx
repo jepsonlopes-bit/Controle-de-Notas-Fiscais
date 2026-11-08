@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Lock, Mail, ArrowRight, AlertTriangle, Building2, Shield, Eye, EyeOff } from 'lucide-react';
+import { Lock, User, ArrowRight, AlertTriangle, Building2, Shield, Eye, EyeOff } from 'lucide-react';
 import { UserProfile } from '@/lib/types';
 import { getClientSnapshot } from '@/lib/clientStorage';
 
@@ -11,7 +11,7 @@ interface LoginScreenProps {
 }
 
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
-  const [email, setEmail] = useState('');
+  const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -28,7 +28,8 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email,
+          usuario: usuario.trim(),
+          email: usuario.trim(),
           senha,
           clientUsers: snap ? snap.users : undefined,
         }),
@@ -56,8 +57,8 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             NF
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white tracking-tight">
-              Controle de Notas Fiscais
+            <h1 className="text-xl font-bold text-white tracking-tight">
+              ControlNF&apos;s
             </h1>
             <p className="text-xs text-slate-400">
               Gestão de Obras, Medições e Pagamentos
@@ -68,7 +69,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <div className="mt-6 border-t border-slate-800/80 pt-6">
           <h2 className="text-sm font-semibold text-white">Acesso ao Sistema</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Sistema privado. Insira seu e-mail e senha corporativos autorizados.
+            Insira seu usuário e senha autorizados para acessar o painel.
           </p>
         </div>
 
@@ -82,19 +83,24 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <form onSubmit={handleLogin} className="mt-5 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300">
-              E-mail Autorizado
+              Usuário
             </label>
             <div className="relative mt-1">
-              <Mail className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+              <User className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
               <input
-                type="email"
+                type="text"
                 required
-                placeholder="seu.email@empresa.com.br"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                placeholder="ex: jeepson.lopes"
+                value={usuario}
+                onChange={(e) => setUsuario(e.target.value)}
                 className="w-full rounded-lg border border-slate-700 bg-slate-800/80 py-2 pr-3 pl-9 text-xs text-white placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Exemplo: <span className="font-mono text-slate-400">jeepson.lopes</span>
+            </p>
           </div>
 
           <div>
@@ -135,7 +141,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               'Autenticando...'
             ) : (
               <>
-                <span>Acessar Painel</span>
+                <span>Acessar ControlNF&apos;s</span>
                 <ArrowRight className="h-4 w-4" />
               </>
             )}

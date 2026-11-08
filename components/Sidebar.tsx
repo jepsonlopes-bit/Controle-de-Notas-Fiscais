@@ -119,10 +119,10 @@ export function Sidebar({
                   NF
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="truncate text-sm font-semibold tracking-tight text-white leading-tight">
-                    Controle de NFs
+                  <span className="truncate text-sm font-bold tracking-tight text-white leading-tight">
+                    ControlNF&apos;s
                   </span>
-                  <span className="truncate text-xs text-slate-400">e Medições de Obras</span>
+                  <span className="truncate text-xs text-slate-400">Gestão de Obras &amp; Medições</span>
                 </div>
               </div>
 

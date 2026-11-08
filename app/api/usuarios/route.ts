@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { nome, email, senha, cargo, role, obras_permitidas } = body;
+    const { nome, email, username, senha, cargo, role, obras_permitidas } = body;
 
     if (!nome || !email || !senha) {
       return NextResponse.json({ error: 'Nome, e-mail e senha são obrigatórios.' }, { status: 400 });
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
     const novoUsuario = createUserByAdmin(user, {
       nome,
       email,
+      username,
       senha,
       cargo,
       role: role || 'USUARIO',
@@ -88,6 +89,7 @@ export async function PUT(req: NextRequest) {
       const atualizado = updateUser(user, id, {
         nome: body.nome,
         email: body.email,
+        username: body.username,
         cargo: body.cargo,
         senha: body.senha,
         role: body.role || nova_role,

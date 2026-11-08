@@ -56,8 +56,8 @@ export function Header({
         )}
 
         <div className="flex items-center gap-2">
-          <span className="hidden sm:inline text-xs font-medium uppercase tracking-wider text-slate-400">
-            Controle Financeiro
+          <span className="hidden sm:inline text-xs font-bold uppercase tracking-wider text-emerald-700">
+            ControlNF&apos;s
           </span>
           <span className="hidden sm:inline text-slate-300">/</span>
           <h1 className="text-base font-semibold text-slate-900">{pageTitle}</h1>
